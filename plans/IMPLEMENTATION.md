@@ -110,9 +110,9 @@ checkboxes inside each task give finer detail; this table is the at-a-glance vie
 | 12   | Per-category research pipeline                 | DONE   |
 | 13   | Bounded agentic curator loop                  | DONE   |
 | 14   | IDENTITY + chord/subtask/fan-in/reaper        | DONE   |
-| 15   | Serializers + create/list/detail endpoints    | WIP    |
-| 16   | Refresh + delete flows                        | TODO   |
-| 17   | Frontend scaffold, api client, polling        | TODO   |
+| 15   | Serializers + create/list/detail endpoints    | DONE   |
+| 16   | Refresh + delete flows                        | DONE   |
+| 17   | Frontend scaffold, api client, polling        | WIP    |
 | 18   | Home page, run list, New-run modal            | TODO   |
 | 19   | Run-view                                      | TODO   |
 | 20   | start_all.sh                                  | TODO   |
