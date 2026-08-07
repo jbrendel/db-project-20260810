@@ -10,10 +10,23 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
+import os
 from pathlib import Path
+
+from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Load .env (if present) before any settings read os.environ. Values already in
+# the environment (e.g. those exported by start_all.sh) take precedence.
+load_dotenv(BASE_DIR / ".env")
+
+# Ports/URLs are discovered at runtime by start_all.sh and passed via env
+# (§4). They are read here for reference; no standard port is assumed.
+DJANGO_PORT = os.environ.get("DJANGO_PORT")
+VITE_PORT = os.environ.get("VITE_PORT")
+REDIS_URL = os.environ.get("REDIS_URL")
 
 
 # Quick-start development settings - unsuitable for production
@@ -25,7 +38,8 @@ SECRET_KEY = "django-insecure-0$56+5r6aar0x-)di4z_k6hxo+le@gwh6ovcrm06=^o_wxaq&h
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+# Ports are irrelevant to ALLOWED_HOSTS; only hosts are listed (§4).
+ALLOWED_HOSTS = ["localhost", "127.0.0.1"]
 
 
 # Application definition
@@ -74,10 +88,14 @@ WSGI_APPLICATION = "drumbeat.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
+# WAL + busy_timeout let multiple Celery subtasks write while Django reads on
+# every poll without "database is locked" (§17). journal_mode=WAL is set per
+# connection in research/apps.py.
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
         "NAME": BASE_DIR / "db.sqlite3",
+        "OPTIONS": {"init_command": "PRAGMA busy_timeout=5000;"},
     }
 }
 

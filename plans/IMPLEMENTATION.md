@@ -96,8 +96,8 @@ checkboxes inside each task give finer detail; this table is the at-a-glance vie
 
 | Task | Deliverable                                   | Status |
 |------|-----------------------------------------------|--------|
-| 1    | Scaffolding, Py3.13 env, Django + pytest      | TODO   |
-| 2    | Env settings, SQLite WAL, config check        | TODO   |
+| 1    | Scaffolding, Py3.13 env, Django + pytest      | DONE   |
+| 2    | Env settings, SQLite WAL, config check        | DONE   |
 | 3    | Category registry + denylist                  | TODO   |
 | 4    | URL/domain module (§19.1)                      | TODO   |
 | 5    | Exclusion module (own-channel + denylist)     | TODO   |
