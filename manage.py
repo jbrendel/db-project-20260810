@@ -15,6 +15,14 @@ def main():
             "available on your PYTHONPATH environment variable? Did you "
             "forget to activate a virtual environment?"
         ) from exc
+    # Fail loud on missing config for real management commands (§14). The test
+    # process sets DRUMBEAT_SKIP_CONFIG_CHECK=1 via pytest.ini and drives Django
+    # through pytest-django, not this entry point.
+    if os.environ.get("DRUMBEAT_SKIP_CONFIG_CHECK") != "1":
+        import django
+        django.setup()
+        from research.config_check import validate_required_env
+        validate_required_env()
     execute_from_command_line(sys.argv)
 
 

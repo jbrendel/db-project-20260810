@@ -104,9 +104,9 @@ checkboxes inside each task give finer detail; this table is the at-a-glance vie
 | 6    | Models + migrations                           | DONE   |
 | 7    | Status computation (completeness)             | DONE   |
 | 8    | Generation-fenced write helper                | DONE   |
-| 9    | call_llm + resolution + logging + schemas     | TODO   |
-| 10   | tavily_search + window filter + caps          | TODO   |
-| 11   | Celery app + settings + beat                  | TODO   |
+| 9    | call_llm + resolution + logging + schemas     | DONE   |
+| 10   | tavily_search + window filter + caps          | DONE   |
+| 11   | Celery app + settings + beat                  | WIP    |
 | 12   | Per-category research pipeline                 | TODO   |
 | 13   | Bounded agentic curator loop                  | TODO   |
 | 14   | IDENTITY + chord/subtask/fan-in/reaper        | TODO   |
