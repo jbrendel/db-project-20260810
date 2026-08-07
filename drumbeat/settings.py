@@ -140,3 +140,21 @@ STATIC_URL = "static/"
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# REST framework: map every failure to the {detail, field} envelope (§13).
+REST_FRAMEWORK = {
+    "EXCEPTION_HANDLER": "research.views.exception_handler",
+}
+
+# --- LLM call logging (§7) ------------------------------------------------
+# A dedicated per-process rotating file handler for the "drumbeat.llm" logger,
+# distinct from the general app log. Skipped under the test switch so the suite
+# neither writes files nor interferes with caplog (records still propagate).
+LLM_LOG_DIR = os.environ.get("LLM_LOG_DIR", str(BASE_DIR / "logs"))
+LLM_LOG_MAX_BYTES = int(os.environ.get("LLM_LOG_MAX_BYTES", str(10 * 1024**2)))
+LLM_LOG_BACKUP_COUNT = int(os.environ.get("LLM_LOG_BACKUP_COUNT", "5"))
+
+if os.environ.get("DRUMBEAT_SKIP_CONFIG_CHECK") != "1":
+    from research.logging_setup import configure_llm_logging
+
+    configure_llm_logging(LLM_LOG_DIR, LLM_LOG_MAX_BYTES, LLM_LOG_BACKUP_COUNT)
