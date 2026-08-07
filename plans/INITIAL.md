@@ -978,20 +978,20 @@ rewritten later.
 
 | # | Milestone                                                    | Status |
 |---|--------------------------------------------------------------|--------|
-| 1 | Python 3.13 env, requirements.txt, project scaffolding       | TODO   |
-| 2 | .env / .env-example + fail-loud config validation (shared)   | TODO   |
-| 3 | Data model + migrations (Run / Category / ContentItem)       | TODO   |
-| 4 | Status computation (completeness model, Section 8), tested   | TODO   |
-| 5 | URL/domain module (19.1) + exclusion (own-channel+denylist)  | TODO   |
-| 6 | Generation-fenced write helper + SupersededGeneration; tests | TODO   |
-| 7 | call_llm() + fallback + LLM log + structured-output parsers  | TODO   |
-| 8 | tavily_search() wrapper + time-window + volume caps          | TODO   |
-| 9 | Celery app + settings; chord/subtask/fan-in/reaper (helper)  | TODO   |
-|10 | Curator agentic loop (bounded) with tool-calling             | TODO   |
-|11 | DRF endpoints + validation + serializer contract             | TODO   |
-|12 | Refresh + delete flows using the fencing helper              | TODO   |
-|13 | React app: home, New-run modal, run list, polling            | TODO   |
-|14 | React run-view: overview, categories, items, states          | TODO   |
-|15 | start_all.sh (ports, scoped Redis, readiness, traps, reset)  | TODO   |
-|16 | run_tests.sh + backend/frontend test suites                  | TODO   |
-|17 | End-to-end manual verification against a real company        | TODO   |
+| 1 | Python 3.13 env, requirements.txt, project scaffolding       | DONE   |
+| 2 | .env / .env-example + fail-loud config validation (shared)   | DONE   |
+| 3 | Data model + migrations (Run / Category / ContentItem)       | DONE   |
+| 4 | Status computation (completeness model, Section 8), tested   | DONE   |
+| 5 | URL/domain module (19.1) + exclusion (own-channel+denylist)  | DONE   |
+| 6 | Generation-fenced write helper + SupersededGeneration; tests | DONE   |
+| 7 | call_llm() + fallback + LLM log + structured-output parsers  | DONE   |
+| 8 | tavily_search() wrapper + time-window + volume caps          | DONE   |
+| 9 | Celery app + settings; chord/subtask/fan-in/reaper (helper)  | DONE   |
+|10 | Curator agentic loop (bounded) with tool-calling             | DONE   |
+|11 | DRF endpoints + validation + serializer contract             | DONE   |
+|12 | Refresh + delete flows using the fencing helper              | DONE   |
+|13 | React app: home, New-run modal, run list, polling            | DONE   |
+|14 | React run-view: overview, categories, items, states          | DONE   |
+|15 | start_all.sh (ports, scoped Redis, readiness, traps, reset)  | DONE   |
+|16 | run_tests.sh + backend/frontend test suites                  | DONE   |
+|17 | End-to-end manual verification against a real company        | PARTIAL|

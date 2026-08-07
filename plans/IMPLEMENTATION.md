@@ -117,7 +117,17 @@ checkboxes inside each task give finer detail; this table is the at-a-glance vie
 | 19   | Run-view                                      | DONE   |
 | 20   | start_all.sh                                  | DONE   |
 | 21   | run_tests.sh                                  | DONE   |
-| 22   | End-to-end manual verification                | TODO   |
+| 22   | End-to-end manual verification                | PARTIAL|
+
+Task 22 note: automated verification done — the Celery worker boots and
+registers all four tasks (`start_run`, `run_category`, `finalize_run`,
+`reap_stuck_runs`), embedded beat fires the reaper on schedule, migrations
+apply, `start_all.sh` parses and its process-group teardown reaps grandchildren,
+and both test suites pass via `./run_tests.sh` (115 backend + 24 frontend). The
+remaining manual steps (run against a real company by URL and by name; observe
+streaming categories, executive overview, own-domain exclusion, undated flags;
+exercise refresh/delete/`--reset-db` end to end) require live LLM + Tavily API
+keys in `.env` and a human check, so they are left for the operator.
 
 ---
 
