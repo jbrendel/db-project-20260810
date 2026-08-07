@@ -38,5 +38,9 @@ def configure_llm_logging(log_dir, max_bytes, backup_count):
         handler.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
         logger.addHandler(handler)
     logger.setLevel(logging.INFO)
-    # Keep propagation on so the general app log / caplog still see records.
+    # §7: the LLM log is a file distinct from the general application log. With
+    # the dedicated handler installed, stop propagation so the full prompt/
+    # response body does not also bloat the root/app log. Tests never call this
+    # (skip switch), so the logger keeps default propagation and caplog works.
+    logger.propagate = False
     return logger

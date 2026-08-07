@@ -48,8 +48,10 @@ if [ "$RESET_DB" = "1" ]; then
 fi
 
 # --- Free-port discovery (bind-check + short retry to reduce TOCTOU) -------
+# Any port passed as an argument is treated as already-taken, so three
+# sequential calls cannot hand out the same port to two services.
 find_free_port() {
-  local port tries=0
+  local exclude=" $* " port tries=0
   while [ "$tries" -lt 50 ]; do
     port="$("$PYTHON" - <<'PY'
 import socket
@@ -59,7 +61,8 @@ print(s.getsockname()[1])
 s.close()
 PY
 )"
-    if ! (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null; then
+    if [[ "$exclude" != *" $port "* ]] \
+       && ! (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null; then
       echo "$port"; return 0
     fi
     tries=$((tries + 1))
@@ -68,22 +71,31 @@ PY
 }
 
 REDIS_PORT="$(find_free_port)"
-DJANGO_PORT="$(find_free_port)"
-VITE_PORT="$(find_free_port)"
+DJANGO_PORT="$(find_free_port "$REDIS_PORT")"
+VITE_PORT="$(find_free_port "$REDIS_PORT" "$DJANGO_PORT")"
 REDIS_URL="redis://127.0.0.1:${REDIS_PORT}/0"
 export REDIS_PORT DJANGO_PORT VITE_PORT REDIS_URL
 
 echo "Ports -> Redis:${REDIS_PORT}  Django:${DJANGO_PORT}  Vite:${VITE_PORT}"
 echo "REDIS_URL=${REDIS_URL}"
 
-# --- Cleanup trap: kill children and remove the run-scoped container -------
-CHILD_PIDS=()
+# --- Cleanup trap: kill child process GROUPS and remove the container ------
+# Each long-lived service is launched with `setsid` so it leads its own process
+# group (pgid == pid). Killing the negative pid signals the whole group, so
+# grandchildren (celery prefork children, vite's node, runserver's autoreload
+# child) are terminated too — a plain `kill <pid>` would orphan them (§15).
+GROUP_PIDS=()
+start_service() {  # start_service <logfile> <command...>
+  local log="$1"; shift
+  setsid "$@" >>"$log" 2>&1 &
+  GROUP_PIDS+=("$!")
+}
 cleanup() {
   trap - SIGINT SIGTERM EXIT
   echo ""
   echo "Shutting down..."
-  for pid in "${CHILD_PIDS[@]}"; do
-    kill "$pid" 2>/dev/null
+  for pid in "${GROUP_PIDS[@]}"; do
+    kill -TERM -"$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null
   done
   wait 2>/dev/null
   docker rm -f "$REDIS_CONTAINER" >/dev/null 2>&1
@@ -114,32 +126,26 @@ docker exec "$REDIS_CONTAINER" redis-cli ping 2>/dev/null | grep -q PONG \
 "$PYTHON" manage.py migrate >>"$LOG_DIR/django.log" 2>&1 \
   || die "Database migration failed (see logs/django.log)."
 
-"$PYTHON" manage.py runserver "127.0.0.1:${DJANGO_PORT}" \
-  >>"$LOG_DIR/django.log" 2>&1 &
-CHILD_PIDS+=("$!")
+start_service "$LOG_DIR/django.log" \
+  "$PYTHON" manage.py runserver "127.0.0.1:${DJANGO_PORT}"
 
-(
-  cd "$ROOT/frontend" && npm run dev -- --port "$VITE_PORT" \
-    >>"$LOG_DIR/vite.log" 2>&1
-) &
-CHILD_PIDS+=("$!")
+start_service "$LOG_DIR/vite.log" \
+  bash -c 'cd "$1"/frontend && exec npm run dev -- --port "$2"' \
+  _ "$ROOT" "$VITE_PORT"
 
 # --- Supervise the Celery worker (§5.5/§15): restart if it exits ----------
-supervise_worker() {
-  while true; do
-    "$ROOT/.venv/bin/celery" -A drumbeat worker -B \
-      --loglevel=info >>"$LOG_DIR/celery.log" 2>&1
-    echo "$(date '+%F %T') celery worker exited; restarting" \
-      >>"$LOG_DIR/celery.log"
+# The whole supervise loop runs in its own process group (via start_service +
+# setsid), so cleanup's group-kill stops both the loop and the live worker.
+start_service "$LOG_DIR/celery.log" \
+  bash -c 'while true; do
+    "$1/.venv/bin/celery" -A drumbeat worker -B --loglevel=info
+    echo "$(date "+%F %T") celery worker exited; restarting"
     sleep 1
-  done
-}
-supervise_worker &
-CHILD_PIDS+=("$!")
+  done' _ "$ROOT"
 
 echo "All services started. Tailing logs (Ctrl-C to stop)."
 touch "$LOG_DIR/django.log" "$LOG_DIR/celery.log" "$LOG_DIR/vite.log"
 tail -f "$LOG_DIR/django.log" "$LOG_DIR/celery.log" "$LOG_DIR/vite.log" &
-CHILD_PIDS+=("$!")
+GROUP_PIDS+=("$!")
 
 wait

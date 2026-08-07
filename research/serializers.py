@@ -87,8 +87,9 @@ class RunCreateSerializer(serializers.Serializer):
         try:
             selected = selected_category_keys(borderline)
         except KeyError as exc:
+            # str(KeyError(msg)) wraps msg in single quotes; strip those.
             raise serializers.ValidationError(
-                {"borderline_options": str(exc).strip('"')})
+                {"borderline_options": str(exc).strip("'")})
         if not selected:  # defensive: a no-op run is invalid (§11)
             raise serializers.ValidationError(
                 {"borderline_options": "No categories selected."})
