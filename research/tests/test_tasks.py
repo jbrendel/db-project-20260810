@@ -1,0 +1,175 @@
+import pytest
+from datetime import timedelta
+from unittest.mock import patch
+from django.utils import timezone
+from research.models import Run, Category, ContentItem
+from research import tasks
+from research.fencing import bump_generation
+
+pytestmark = pytest.mark.django_db
+
+_REPORT = {"content": '{"executive_overview": "o"}', "tool_calls": [],
+           "usage": None}
+
+
+def test_subtask_error_degrades_to_yellow():
+    run = Run.objects.create(input_text="Acme", input_kind="name",
+                             selected_categories=["news", "podcasts"],
+                             started_at=timezone.now())
+    for i, key in enumerate(["news", "podcasts"]):
+        Category.objects.create(run=run, key=key, display_order=i)
+    gen = run.generation
+
+    def fake_research(company, key, months, exclusion):
+        if key == "podcasts":
+            raise RuntimeError("boom")
+        return {"items": [{"title": "t", "url": "https://n.com/a",
+                "source": "n.com", "published_at": None, "snippet": "s"}],
+                "summary": "sum"}
+
+    with patch.object(tasks, "research_category", side_effect=fake_research), \
+         patch.object(tasks, "call_llm", return_value=_REPORT):
+        tasks.run_category.run(run.id, gen, "news")
+        tasks.run_category.run(run.id, gen, "podcasts")
+        tasks.finalize_run.run(["news", "podcasts"], run.id, gen)
+
+    run.refresh_from_db()
+    assert run.status == "yellow"
+    assert run.ended_at is not None and run.executive_overview == "o"
+    assert Category.objects.get(run=run, key="podcasts").status == "red"
+    assert Category.objects.get(run=run, key="news").status == "green"
+
+
+def test_stale_subtask_after_refresh_does_not_mark_red():
+    # A subtask from the old generation must return normally, not mark red.
+    run = Run.objects.create(input_text="Acme", input_kind="name")
+    Category.objects.create(run=run, key="news", status="pending")
+    old_gen = run.generation
+    bump_generation(run.id)  # simulate a refresh bumping the generation
+
+    def boom(*a, **k):
+        raise RuntimeError("should be swallowed as superseded")
+
+    with patch.object(tasks, "research_category", side_effect=boom):
+        tasks.run_category.run(run.id, old_gen, "news")  # must not raise
+    assert Category.objects.get(run=run, key="news").status == "pending"
+
+
+def test_finalize_dedups_across_categories():
+    run = Run.objects.create(input_text="Acme", input_kind="name",
+                             status="blue", started_at=timezone.now())
+    c1 = Category.objects.create(run=run, key="news", display_order=0,
+                                 status="green")
+    c2 = Category.objects.create(run=run, key="press_releases",
+                                 display_order=1, status="green")
+    for c in (c1, c2):
+        ContentItem.objects.create(category=c, title="t",
+            url="https://n.com/a", canonical_url="https://n.com/a",
+            source="n.com")
+    with patch.object(tasks, "call_llm", return_value=_REPORT):
+        tasks.finalize_run.run([], run.id, run.generation)
+    assert ContentItem.objects.filter(category__run=run).count() == 1
+    c2.refresh_from_db()
+    assert c2.status == "yellow"  # emptied by dedup -> demoted, summary nulled
+
+
+def test_finalize_report_prompt_excludes_duplicate():
+    run = Run.objects.create(input_text="Acme", input_kind="name",
+                             status="blue", started_at=timezone.now())
+    c1 = Category.objects.create(run=run, key="news", display_order=0,
+                                 status="green")
+    c2 = Category.objects.create(run=run, key="press_releases",
+                                 display_order=1, status="green")
+    for c in (c1, c2):
+        ContentItem.objects.create(category=c, title="Same",
+            url="https://n.com/a", canonical_url="https://n.com/a",
+            source="n.com")
+    with patch.object(tasks, "call_llm", return_value=_REPORT) as llm:
+        tasks.finalize_run.run([], run.id, run.generation)
+    prompt = llm.call_args[0][1][0]["content"]
+    assert prompt.count("Same") == 1  # duplicate absent from REPORT input
+
+
+def test_finalize_zero_items_is_red_with_fixed_message():
+    run = Run.objects.create(input_text="Acme", input_kind="name",
+                             status="blue", started_at=timezone.now())
+    Category.objects.create(run=run, key="news", display_order=0,
+                            status="yellow")
+    with patch.object(tasks, "call_llm") as llm:
+        tasks.finalize_run.run([], run.id, run.generation)
+    llm.assert_not_called()  # REPORT skipped when zero items
+    run.refresh_from_db()
+    assert run.status == "red"
+    assert "No third-party content" in run.executive_overview
+
+
+def test_stale_finalize_after_refresh_does_not_overwrite():
+    run = Run.objects.create(input_text="Acme", input_kind="name",
+                             status="blue", started_at=timezone.now())
+    Category.objects.create(run=run, key="news", status="green")
+    ContentItem.objects.create(
+        category=Category.objects.get(run=run), title="t",
+        url="https://n.com/a", canonical_url="https://n.com/a", source="n.com")
+    old_gen = run.generation
+    bump_generation(run.id)
+    with patch.object(tasks, "call_llm", return_value=_REPORT):
+        tasks.finalize_run.run([], run.id, old_gen)  # superseded
+    run.refresh_from_db()
+    assert run.status == "blue"  # not overwritten by the stale callback
+
+
+def test_reaper_terminalizes_stuck_run():
+    run = Run.objects.create(input_text="Acme", input_kind="name",
+        status="blue", started_at=timezone.now() - timedelta(hours=1))
+    Category.objects.create(run=run, key="news", status="running")
+    tasks.reap_stuck_runs()
+    run.refresh_from_db()
+    assert run.status == "red"  # no items anywhere
+    assert run.ended_at is not None
+    assert Category.objects.get(run=run, key="news").status == "red"
+
+
+def test_reaper_ignores_fresh_run():
+    run = Run.objects.create(input_text="Acme", input_kind="name",
+        status="blue", started_at=timezone.now())
+    Category.objects.create(run=run, key="news", status="running")
+    tasks.reap_stuck_runs()
+    run.refresh_from_db()
+    assert run.status == "blue"  # not stale enough to reap
+
+
+def test_reaper_rolls_up_green_when_categories_done():
+    # All categories finished green but finalize died -> reaper rolls up green.
+    run = Run.objects.create(input_text="Acme", input_kind="name",
+        status="blue", started_at=timezone.now() - timedelta(hours=1))
+    cat = Category.objects.create(run=run, key="news", status="green")
+    ContentItem.objects.create(category=cat, title="t", url="https://n.com/a",
+        canonical_url="https://n.com/a", source="n.com")
+    tasks.reap_stuck_runs()
+    run.refresh_from_db()
+    assert run.status == "green"
+
+
+def test_report_prompt_enforces_item_cap(monkeypatch):
+    monkeypatch.setenv("REPORT_MAX_ITEMS_TOTAL", "2")
+    run = Run.objects.create(input_text="Acme", input_kind="name")
+    cat = Category.objects.create(run=run, key="news")
+    items = []
+    for i in range(5):
+        items.append(("news", ContentItem(category=cat, title=f"T{i}",
+            url=f"https://n.com/{i}", canonical_url=f"https://n.com/{i}",
+            source="n.com", snippet="s")))
+    prompt = tasks._report_prompt(run, items)
+    assert prompt.count("::") == 2  # only 2 item lines survive the cap
+
+
+def test_stale_task_after_delete_is_superseded():
+    run = Run.objects.create(input_text="Acme", input_kind="name")
+    Category.objects.create(run=run, key="news", status="pending")
+    gen = run.generation
+    run_id = run.id
+    run.delete()  # run row gone
+    with patch.object(tasks, "research_category") as rc:
+        tasks.run_category.run(run_id, gen, "news")  # must not raise/recreate
+    rc.assert_not_called()
+    assert not Run.objects.filter(id=run_id).exists()
