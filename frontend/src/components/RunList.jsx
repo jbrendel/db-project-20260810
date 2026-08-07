@@ -31,7 +31,10 @@ export function RunList({ runs, onChanged }) {
           tabIndex={0}
           onClick={() => navigate(`/runs/${run.id}`)}
           onKeyDown={(e) => {
-            if (e.key === "Enter") navigate(`/runs/${run.id}`);
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              navigate(`/runs/${run.id}`);
+            }
           }}
         >
           <span className="run-name">{run.input_text}</span>

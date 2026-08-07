@@ -65,6 +65,11 @@ export function NewRunModal({ onClose, onCreated }) {
       const body = err.body || {};
       if (err.status === 400 && body.field) {
         setFieldError({ field: body.field, message: body.detail });
+        // A field without a dedicated inline slot (e.g. borderline_options)
+        // would otherwise show nothing; surface it as a non-field line too.
+        if (!["input_text", "lookback_months"].includes(body.field)) {
+          setNonFieldError(body.detail);
+        }
       } else if (err.status === 400) {
         setNonFieldError(body.detail || "Please check your input.");
       } else {
