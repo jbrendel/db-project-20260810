@@ -112,11 +112,11 @@ checkboxes inside each task give finer detail; this table is the at-a-glance vie
 | 14   | IDENTITY + chord/subtask/fan-in/reaper        | DONE   |
 | 15   | Serializers + create/list/detail endpoints    | DONE   |
 | 16   | Refresh + delete flows                        | DONE   |
-| 17   | Frontend scaffold, api client, polling        | WIP    |
-| 18   | Home page, run list, New-run modal            | TODO   |
-| 19   | Run-view                                      | TODO   |
-| 20   | start_all.sh                                  | TODO   |
-| 21   | run_tests.sh                                  | TODO   |
+| 17   | Frontend scaffold, api client, polling        | DONE   |
+| 18   | Home page, run list, New-run modal            | DONE   |
+| 19   | Run-view                                      | DONE   |
+| 20   | start_all.sh                                  | DONE   |
+| 21   | run_tests.sh                                  | DONE   |
 | 22   | End-to-end manual verification                | TODO   |
 
 ---
