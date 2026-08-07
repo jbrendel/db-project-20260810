@@ -98,12 +98,12 @@ checkboxes inside each task give finer detail; this table is the at-a-glance vie
 |------|-----------------------------------------------|--------|
 | 1    | Scaffolding, Py3.13 env, Django + pytest      | DONE   |
 | 2    | Env settings, SQLite WAL, config check        | DONE   |
-| 3    | Category registry + denylist                  | TODO   |
-| 4    | URL/domain module (§19.1)                      | TODO   |
-| 5    | Exclusion module (own-channel + denylist)     | TODO   |
-| 6    | Models + migrations                           | TODO   |
-| 7    | Status computation (completeness)             | TODO   |
-| 8    | Generation-fenced write helper                | TODO   |
+| 3    | Category registry + denylist                  | DONE   |
+| 4    | URL/domain module (§19.1)                      | DONE   |
+| 5    | Exclusion module (own-channel + denylist)     | DONE   |
+| 6    | Models + migrations                           | DONE   |
+| 7    | Status computation (completeness)             | DONE   |
+| 8    | Generation-fenced write helper                | DONE   |
 | 9    | call_llm + resolution + logging + schemas     | TODO   |
 | 10   | tavily_search + window filter + caps          | TODO   |
 | 11   | Celery app + settings + beat                  | TODO   |
