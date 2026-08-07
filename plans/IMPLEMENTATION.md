@@ -109,8 +109,8 @@ checkboxes inside each task give finer detail; this table is the at-a-glance vie
 | 11   | Celery app + settings + beat                  | DONE   |
 | 12   | Per-category research pipeline                 | DONE   |
 | 13   | Bounded agentic curator loop                  | DONE   |
-| 14   | IDENTITY + chord/subtask/fan-in/reaper        | WIP    |
-| 15   | Serializers + create/list/detail endpoints    | TODO   |
+| 14   | IDENTITY + chord/subtask/fan-in/reaper        | DONE   |
+| 15   | Serializers + create/list/detail endpoints    | WIP    |
 | 16   | Refresh + delete flows                        | TODO   |
 | 17   | Frontend scaffold, api client, polling        | TODO   |
 | 18   | Home page, run list, New-run modal            | TODO   |

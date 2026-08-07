@@ -23,7 +23,10 @@ def detect_input_kind(text):
         return "name"
     head = t.split("/")[0].split(":")[0].split("?")[0]
     ext = _extract(head)
-    return "url" if ext.domain and ext.suffix else "name"
+    # A dotted, space-free token ending in a known public suffix is treated as
+    # a URL even if a label is malformed (e.g. `example..com`, empty domain);
+    # parse_homepage_input then rejects the malformed host at the API boundary.
+    return "url" if ext.suffix else "name"
 
 
 def registrable_domain(host_or_url):
