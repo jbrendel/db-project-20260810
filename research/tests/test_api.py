@@ -102,6 +102,33 @@ def test_detail_contract_nests_items(client):
     assert body["categories"][0]["items"][0]["is_undated"] is True
 
 
+def test_detail_query_count_is_bounded(client, django_assert_max_num_queries):
+    run = Run.objects.create(input_text="Acme", input_kind="name",
+                             selected_categories=["news", "podcasts"])
+    for i, key in enumerate(["news", "podcasts"]):
+        cat = Category.objects.create(run=run, key=key, display_order=i,
+                                      status="green")
+        for n in range(3):
+            ContentItem.objects.create(
+                category=cat, title=f"t{n}", url=f"https://n.com/{key}{n}",
+                canonical_url=f"https://n.com/{key}{n}", source="n.com")
+    # Prefetch keeps this constant regardless of category/item counts (no N+1).
+    with django_assert_max_num_queries(6):
+        body = client.get(f"/api/runs/{run.id}/").json()
+    assert body["total_item_count"] == 6
+    assert body["categories"][0]["item_count"] == 3
+
+
+def test_dotnet_product_name_is_accepted(
+        client, django_capture_on_commit_callbacks):
+    with patch("research.views.start_run"):
+        with django_capture_on_commit_callbacks(execute=True):
+            resp = client.post("/api/runs/", {"input_text": ".NET"},
+                               content_type="application/json")
+    assert resp.status_code == 201
+    assert Run.objects.get().input_kind == "name"
+
+
 def test_list_newest_first(client):
     r1 = Run.objects.create(input_text="One", input_kind="name")
     r2 = Run.objects.create(input_text="Two", input_kind="name")

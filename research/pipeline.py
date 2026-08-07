@@ -25,14 +25,14 @@ def _ingest(queries, lookback_months, exclusion, pool, seen):
     cap = int(os.environ.get("MAX_CANDIDATES_PER_CATEGORY", "40"))
     for q in queries:
         for item in tavily_search(q, lookback_months, per):
+            if len(pool) >= cap:  # guard first so the pool never exceeds cap
+                return pool
             key = canonicalize_url_for_dedupe(item["url"])
             excluded, _ = is_excluded(item["url"], exclusion)
             if excluded or key in seen:
                 continue
             seen.add(key)
             pool.append(item)
-            if len(pool) >= cap:
-                return pool
     return pool
 
 

@@ -91,7 +91,10 @@ class RunListCreateView(APIView):
 
 class RunDetailView(APIView):
     def get(self, request, pk):
-        run = _get_or_404(pk)
+        # Prefetch categories+items so the ~2s poll serializes in a constant
+        # number of queries (no per-category count/N+1).
+        run = (Run.objects.prefetch_related("categories__items")
+               .filter(id=pk).first())
         if run is None:
             return _not_found()
         return Response(RunDetailSerializer(run).data)

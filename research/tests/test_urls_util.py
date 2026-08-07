@@ -11,6 +11,11 @@ def test_detect_input_kind():
     assert u.detect_input_kind("google.com/about") == "url"
     # No dot -> name (even without spaces).
     assert u.detect_input_kind("Acme") == "name"
+    # A leading-dot bare suffix is a product name, not a URL.
+    assert u.detect_input_kind(".NET") == "name"
+    assert u.detect_input_kind(".com") == "name"
+    # A malformed interior label still classifies as URL (rejected downstream).
+    assert u.detect_input_kind("example..com") == "url"
 
 
 def test_registrable_domain():

@@ -26,7 +26,9 @@ class CategorySerializer(serializers.ModelSerializer):
                   "summary", "item_count", "items"]
 
     def get_item_count(self, obj):
-        return obj.items.count()  # server-computed; frontend never counts
+        # len(all()) uses the prefetch cache on the polled detail path (one
+        # query for all items), falling back to a single query otherwise.
+        return len(obj.items.all())  # server-computed; frontend never counts
 
 
 class RunDetailSerializer(serializers.ModelSerializer):
@@ -40,7 +42,9 @@ class RunDetailSerializer(serializers.ModelSerializer):
                   "total_item_count", "categories"]
 
     def get_total_item_count(self, obj):
-        return ContentItem.objects.filter(category__run=obj).count()
+        # Sum over the prefetched categories/items so the polled detail path
+        # adds no extra queries (§10: counts are server-computed).
+        return sum(len(c.items.all()) for c in obj.categories.all())
 
 
 class RunListSerializer(serializers.ModelSerializer):

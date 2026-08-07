@@ -22,10 +22,14 @@ def detect_input_kind(text):
     if any(ch.isspace() for ch in t) or "." not in t:
         return "name"
     head = t.split("/")[0].split(":")[0].split("?")[0]
+    # A leading-dot token (".NET", ".com") is a bare suffix, not a host — treat
+    # it as a name so a product search is not rejected as a bad URL.
+    if head.startswith("."):
+        return "name"
     ext = _extract(head)
     # A dotted, space-free token ending in a known public suffix is treated as
-    # a URL even if a label is malformed (e.g. `example..com`, empty domain);
-    # parse_homepage_input then rejects the malformed host at the API boundary.
+    # a URL even if an interior label is malformed (e.g. `example..com`, empty
+    # domain); parse_homepage_input then rejects it at the API boundary.
     return "url" if ext.suffix else "name"
 
 
