@@ -377,7 +377,15 @@ surrounding Markdown code fence, and only if the parser explicitly allows it).
 - `IDENTITY` -> `{ official_domain: str|null, owned_profile_urls: [str],
   owned_social_handles: [str], confidence: "high"|"medium"|"low",
   matched: bool }`. `matched=false` / null domain is the defined no-match shape
-  (non-fatal, Section 19).
+  (non-fatal, Section 19). **IDENTITY is parsed TOLERANTLY** (unlike the
+  load-bearing call-points below): because it is non-fatal and its only
+  load-bearing output is `official_domain`, the parser SALVAGES a usable domain
+  from real model variance — `confidence` returned as a number is normalised to
+  the enum, `matched` returned as evidence rather than a bool is derived from the
+  presence of a domain — instead of discarding a good `official_domain` and
+  needlessly skipping own-channel exclusion. Only a non-JSON body fails. The
+  prompt states the exact field types and gives a one-shot example to minimise
+  the variance in the first place.
 - `QUERY_PLANNER` -> `{ queries: [str] }`, at most `QUERY_PLANNER_MAX_QUERIES`,
   no commentary.
 - `CURATOR` -> `{ accepted: [{url}], rejected: [{url, reason_code}],
