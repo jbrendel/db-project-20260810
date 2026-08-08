@@ -97,22 +97,42 @@ def test_parse_identity_no_match_null_domain_ok():
     assert data["matched"] is False and data["official_domain"] is None
 
 
-def test_parse_identity_missing_matched_raises():
+def test_parse_identity_derives_matched_when_missing():
+    # No `matched` key but a usable domain -> matched derived True.
+    data = parse_identity('{"official_domain": "acme.com",'
+                          '"owned_profile_urls": [], '
+                          '"owned_social_handles": []}')
+    assert data["matched"] is True and data["official_domain"] == "acme.com"
+
+
+def test_parse_identity_numeric_confidence_salvaged():
+    # Real OpenRouter output: confidence as a number. Salvage the domain.
+    data = parse_identity('{"official_domain": "apple.com", "matched": true,'
+                          '"confidence": 0.9, "owned_profile_urls": [],'
+                          '"owned_social_handles": []}')
+    assert data["official_domain"] == "apple.com"
+    assert data["matched"] is True
+    assert data["confidence"] == "high"
+
+
+def test_parse_identity_array_matched_salvaged():
+    # Real OpenRouter output: `matched` returned as an evidence array. The
+    # domain is still salvaged and matched is derived from it.
+    data = parse_identity('{"official_domain": "google.com",'
+                          '"confidence": 0.85, "owned_profile_urls": [],'
+                          '"owned_social_handles": [],'
+                          '"matched": ["https://blog.google/x"]}')
+    assert data["official_domain"] == "google.com"
+    assert data["matched"] is True
+
+
+def test_parse_identity_matched_true_but_null_domain_is_no_match():
+    data = parse_identity('{"official_domain": null, "matched": true,'
+                          '"confidence": "high", "owned_profile_urls": [],'
+                          '"owned_social_handles": []}')
+    assert data["matched"] is False  # cannot match without a domain
+
+
+def test_parse_identity_non_json_still_fails():
     with pytest.raises(MalformedLLMOutput):
-        parse_identity('{"official_domain": "acme.com",'
-                       '"confidence": "high", "owned_profile_urls": [],'
-                       '"owned_social_handles": []}')
-
-
-def test_parse_identity_bad_confidence_raises():
-    with pytest.raises(MalformedLLMOutput):
-        parse_identity('{"official_domain": "acme.com", "matched": true,'
-                       '"confidence": "certain", "owned_profile_urls": [],'
-                       '"owned_social_handles": []}')
-
-
-def test_parse_identity_matched_true_requires_domain():
-    with pytest.raises(MalformedLLMOutput):
-        parse_identity('{"official_domain": null, "matched": true,'
-                       '"confidence": "high", "owned_profile_urls": [],'
-                       '"owned_social_handles": []}')
+        parse_identity("not json at all")

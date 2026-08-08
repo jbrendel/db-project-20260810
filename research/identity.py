@@ -15,9 +15,22 @@ def resolve_identity(run):
         return urls_util.registrable_domain(run.input_text), [], []
     hints = [h["url"] for h in
              tavily_search(f"{run.input_text} official website", 36, 5)]
-    prompt = (f'Company: "{run.input_text}". Candidate URLs: {hints}. '
-              'Return JSON {official_domain, owned_profile_urls, '
-              'owned_social_handles, confidence, matched}.')
+    prompt = (
+        f'Identify the official company behind "{run.input_text}". Candidate '
+        f'URLs from a web search: {hints}. Return ONLY a JSON object with '
+        'EXACTLY these fields and types:\n'
+        '- "official_domain": the registrable domain as a bare string '
+        '(e.g. "apple.com"), or null if you cannot determine it.\n'
+        '- "owned_profile_urls": array of the company\'s OWN profile URLs on '
+        'third-party platforms (LinkedIn, X, YouTube, etc.); [] if none.\n'
+        '- "owned_social_handles": array of the company\'s OWN social handles '
+        '(e.g. "@apple"); [] if none.\n'
+        '- "confidence": exactly one of the strings "high", "medium", "low".\n'
+        '- "matched": a boolean true/false — true only if you determined the '
+        'official domain.\n'
+        'Example: {"official_domain": "apple.com", "owned_profile_urls": [], '
+        '"owned_social_handles": ["@apple"], "confidence": "high", '
+        '"matched": true}')
     data = schemas.parse_identity(
         call_llm("IDENTITY", [{"role": "user", "content": prompt}],
                  run_id=run.id, json_object=True)["content"])

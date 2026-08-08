@@ -69,22 +69,44 @@ def parse_curator(content):
     return data
 
 
+def _normalize_confidence(value):
+    """Map any confidence shape to high/medium/low (field is best-effort)."""
+    if isinstance(value, str) and value.lower() in ("high", "medium", "low"):
+        return value.lower()
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return "high" if value >= 0.66 else "medium" if value >= 0.33 else "low"
+    return "medium"
+
+
 def parse_identity(content):
+    """Parse the IDENTITY response tolerantly.
+
+    IDENTITY is non-fatal and best-effort (§5.4/§19): its whole purpose is the
+    official domain for own-channel exclusion. Real models return `confidence`
+    as a number and sometimes `matched` as evidence rather than a bool, so this
+    parser SALVAGES a usable domain instead of discarding it over an unused
+    field — otherwise own-domain exclusion would be needlessly skipped. Only a
+    non-JSON body (caught by `_load`) fails. `matched` is authoritative only
+    when it is a real bool AND a usable domain exists; otherwise it is derived
+    from the presence of a string domain.
+    """
     data = _load(content)
-    for key in ("official_domain", "owned_profile_urls",
-                "owned_social_handles", "confidence", "matched"):
-        if key not in data:  # all documented keys required (§6.1)
-            raise MalformedLLMOutput(f"identity missing key: {key}")
-    if not isinstance(data["matched"], bool):
-        raise MalformedLLMOutput("matched must be bool")
-    if data["confidence"] not in ("high", "medium", "low"):
-        raise MalformedLLMOutput("confidence must be high/medium/low")
-    for k in ("owned_profile_urls", "owned_social_handles"):
-        if not isinstance(data[k], list):
-            raise MalformedLLMOutput(f"{k} must be a list")
-    dom = data["official_domain"]
-    if data["matched"] and not isinstance(dom, str):
-        raise MalformedLLMOutput("matched=true requires a string domain")
-    if dom is not None and not isinstance(dom, str):
-        raise MalformedLLMOutput("official_domain must be str or null")
-    return data
+    dom = data.get("official_domain")
+    if not (isinstance(dom, str) and dom.strip()):
+        dom = None
+    raw_matched = data.get("matched")
+    if isinstance(raw_matched, bool):
+        matched = raw_matched and dom is not None
+    else:
+        matched = dom is not None  # derive from a usable domain
+    profiles = data.get("owned_profile_urls")
+    profiles = [u for u in profiles if isinstance(u, str)] \
+        if isinstance(profiles, list) else []
+    handles = data.get("owned_social_handles")
+    handles = [h for h in handles if isinstance(h, str)] \
+        if isinstance(handles, list) else []
+    return {
+        "official_domain": dom, "matched": matched,
+        "owned_profile_urls": profiles, "owned_social_handles": handles,
+        "confidence": _normalize_confidence(data.get("confidence")),
+    }
