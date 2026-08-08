@@ -6,13 +6,43 @@ from research.exclusion import is_excluded
 from research.urls_util import canonicalize_url_for_dedupe
 from research import schemas
 
+# What each category means as THIRD-PARTY coverage about the company. The
+# planner must target independent sources, not the company's own channels —
+# otherwise queries like "Google blog posts" return google's own blogs, which
+# the curator then rejects wholesale (leaving the category empty).
+CATEGORY_INTENT = {
+    "news": "news articles from independent news outlets",
+    "trade_publications": "coverage in trade and industry publications",
+    "blog_posts": ("blog posts written by INDEPENDENT third parties "
+                   "(bloggers, analysts, enthusiasts) — NOT the company's own "
+                   "blog"),
+    "press_releases": ("press releases about the company distributed on "
+                       "newswire services (PR Newswire, Business Wire, etc.)"),
+    "social_posts": "notable social-media posts about the company by others",
+    "newsletters": "third-party newsletters that cover or mention the company",
+    "podcasts": "podcast episodes that discuss the company",
+    "reddit": "Reddit discussions about the company",
+    "forums": "online-forum discussions about the company",
+}
 
-def _plan_queries(company, category_key):
-    prompt = (f"Company: {company}. Category: {category_key}. Return JSON "
-              '{"queries": [...]} of focused web search queries.')
-    out = call_llm("QUERY_PLANNER",
-                   [{"role": "user", "content": prompt}], json_object=True)
+
+def _plan_queries(company, category_key, domain=None, run_id=None):
+    intent = CATEGORY_INTENT.get(category_key, f"third-party {category_key}")
     max_q = int(os.environ.get("QUERY_PLANNER_MAX_QUERIES", "3"))
+    exclude = (f'Do NOT target the company\'s own domain "{domain}" or its '
+               "owned channels; those are excluded downstream. "
+               if domain else "")
+    prompt = (
+        f'You are finding THIRD-PARTY content ABOUT the company "{company}", '
+        "written by INDEPENDENT sources — not the company's own website, blog, "
+        f"or social accounts. {exclude}Goal for this batch: {intent}. Generate "
+        f"up to {max_q} focused web-search queries that surface independent, "
+        f'third-party sources discussing "{company}" (pair the company name '
+        "with review/analysis/commentary/coverage terms; avoid queries that "
+        'would mainly return the company\'s own pages). Return JSON '
+        '{"queries": [...]} — queries only, no commentary.')
+    out = call_llm("QUERY_PLANNER", [{"role": "user", "content": prompt}],
+                   json_object=True, run_id=run_id, category_key=category_key)
     return schemas.parse_query_planner(out["content"])[:max_q]
 
 
@@ -54,7 +84,8 @@ def _curator_prompt(company, category_key, pool):
         f'URLs.\n{body}')
 
 
-def _curate(company, category_key, pool, seen, lookback_months, exclusion):
+def _curate(company, category_key, pool, seen, lookback_months, exclusion,
+            run_id=None):
     """Bounded curator: judge, optionally search more, return accepted items.
 
     Follow-up searches go through _ingest, so they honor the run's window, the
@@ -67,7 +98,8 @@ def _curate(company, category_key, pool, seen, lookback_months, exclusion):
     for _ in range(max_iter):
         prompt = _curator_prompt(company, category_key, pool)
         out = call_llm("CURATOR", [{"role": "user", "content": prompt}],
-                       json_object=True)
+                       json_object=True, run_id=run_id,
+                       category_key=category_key)
         data = schemas.parse_curator(out["content"])
         accepted_urls = [a["url"] for a in data["accepted"]]
         if data["done"] or not data["tool_call"] or searches >= max_search:
@@ -88,21 +120,25 @@ def _summary_prompt(company, category_key, items):
             f'{{"summary": "..."}}.\n{body}')
 
 
-def _summarize(company, category_key, items):
+def _summarize(company, category_key, items, run_id=None):
     prompt = _summary_prompt(company, category_key, items)
     out = call_llm("CATEGORY_SUMMARY",
-                   [{"role": "user", "content": prompt}], json_object=True)
+                   [{"role": "user", "content": prompt}], json_object=True,
+                   run_id=run_id, category_key=category_key)
     return schemas.parse_category_summary(out["content"])
 
 
-def research_category(company, category_key, lookback_months, exclusion):
+def research_category(company, category_key, lookback_months, exclusion,
+                      run_id=None):
     """Return {'items': [...], 'summary': str|None} for one category."""
-    queries = _plan_queries(company, category_key)
+    queries = _plan_queries(company, category_key,
+                            domain=exclusion.resolved_domain, run_id=run_id)
     pool, seen = [], set()
     _ingest(queries, lookback_months, exclusion, pool, seen)
     accepted = _curate(company, category_key, pool, seen,
-                       lookback_months, exclusion)
+                       lookback_months, exclusion, run_id=run_id)
     max_items = int(os.environ.get("MAX_ITEMS_PER_CATEGORY", "20"))
     items = accepted[:max_items]
-    summary = _summarize(company, category_key, items) if items else None
+    summary = _summarize(company, category_key, items,
+                         run_id=run_id) if items else None
     return {"items": items, "summary": summary}

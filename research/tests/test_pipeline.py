@@ -55,3 +55,25 @@ def test_query_planner_cap(monkeypatch):
     with patch.object(pipeline, "call_llm", return_value=out):
         queries = pipeline._plan_queries("Acme", "news")
     assert queries == ["a", "b"]
+
+
+def test_planner_prompt_targets_third_party_and_excludes_own_domain():
+    captured = {}
+
+    def fake(name, messages, **kw):
+        captured["prompt"] = messages[0]["content"]
+        captured["kw"] = kw
+        return {"content": '{"queries": ["x"]}', "tool_calls": [],
+                "usage": None}
+
+    with patch.object(pipeline, "call_llm", side_effect=fake):
+        pipeline._plan_queries("Google", "blog_posts", domain="google.com",
+                               run_id=7)
+    prompt = captured["prompt"]
+    assert "THIRD-PARTY" in prompt
+    assert "INDEPENDENT" in prompt
+    assert "google.com" in prompt  # own-domain exclusion hint
+    assert "not the company's own blog" in prompt.lower()
+    # LLM log correlation now flows through (was missing before).
+    assert captured["kw"]["run_id"] == 7
+    assert captured["kw"]["category_key"] == "blog_posts"

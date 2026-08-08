@@ -97,7 +97,8 @@ def _run_category_body(run_id, generation, category_key):
         Category.objects.filter(run_id=run_id, key=category_key).update(
             status="running", started_at=timezone.now())
     result = research_category(run.input_text, category_key,
-                              run.lookback_months, _exclusion_for(run))
+                              run.lookback_months, _exclusion_for(run),
+                              run_id=run_id)
     ordered = _order_items(result["items"])
     with transaction.atomic():
         guard_generation(run_id, generation)

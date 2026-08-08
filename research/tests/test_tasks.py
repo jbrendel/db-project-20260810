@@ -20,7 +20,7 @@ def test_subtask_error_degrades_to_yellow():
         Category.objects.create(run=run, key=key, display_order=i)
     gen = run.generation
 
-    def fake_research(company, key, months, exclusion):
+    def fake_research(company, key, months, exclusion, run_id=None):
         if key == "podcasts":
             raise RuntimeError("boom")
         return {"items": [{"title": "t", "url": "https://n.com/a",
