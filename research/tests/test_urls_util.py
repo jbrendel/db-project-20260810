@@ -67,6 +67,25 @@ def test_owned_profile_match_is_platform_and_path_aware():
         "https://youtube.com/@acme/videos", "https://youtube.com/@acme")
 
 
+def test_is_safe_http_url():
+    assert u.is_safe_http_url("https://acme.com/a")
+    assert u.is_safe_http_url("http://acme.com")
+    assert not u.is_safe_http_url("javascript:alert(1)")
+    assert not u.is_safe_http_url("data:text/html,<script>")
+    assert not u.is_safe_http_url("file:///etc/passwd")
+    assert not u.is_safe_http_url("//evil.com/x")  # protocol-relative
+    assert not u.is_safe_http_url("mailto:x@y.com")
+    assert not u.is_safe_http_url("https://")  # no hostname
+    assert not u.is_safe_http_url(None)
+
+
+def test_extract_uses_no_disk_cache():
+    # Regression (Codex code-review 1, finding 1): URL handling must be fully
+    # offline and never write to the user's (possibly read-only) home cache.
+    # A disabled DiskCache performs no filesystem reads or writes.
+    assert u._extract._cache.enabled is False
+
+
 def test_parse_homepage_input_edges():
     assert u.parse_homepage_input("acme.com") == "https://acme.com"
     assert u.parse_homepage_input("https://blog.acme.com/x") == \

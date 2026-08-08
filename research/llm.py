@@ -55,7 +55,10 @@ def call_llm(name, messages, tools=None, run_id=None, category_key=None):
             "category_key": category_key,
             "duration_s": round(time.time() - started, 3),
             "usage": result["usage"], "prompt": messages,
-            "response": result["content"],
+            # Full response = content AND tool_calls (curator turns request
+            # searches via tool_calls; §7 logs the full response).
+            "response": {"content": result["content"],
+                         "tool_calls": result["tool_calls"]},
         }))
     except Exception as exc:  # a logging failure must not kill the run
         logging.getLogger("drumbeat").warning("llm log failed: %s", exc)

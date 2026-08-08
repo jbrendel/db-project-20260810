@@ -79,6 +79,48 @@ def test_call_llm_returns_and_logs(monkeypatch, caplog):
     record = json.loads(caplog.records[-1].message)
     assert record["call_point"] == "REPORT"
     assert record["run_id"] == 1 and record["category_key"] == "news"
+    # Full response is logged as content + tool_calls (§7).
+    assert record["response"]["content"] == "hello"
+    assert record["response"]["tool_calls"] == []
+
+
+class _FakeToolCall:
+    def model_dump(self):
+        return {"id": "call_1", "function": {"name": "search",
+                "arguments": '{"query": "x"}'}}
+
+
+def test_call_llm_logs_tool_calls(monkeypatch, caplog):
+    _set_defaults(monkeypatch)
+
+    class _MsgWithTool(_FakeMsg):
+        def __init__(self):
+            super().__init__()
+            self.content = ""
+            self.tool_calls = [_FakeToolCall()]
+
+    class _ChoiceTool(_FakeChoice):
+        def __init__(self):
+            self.message = _MsgWithTool()
+
+    class _RespTool(_FakeResp):
+        def __init__(self):
+            self.choices = [_ChoiceTool()]
+            self.usage = _FakeUsage()
+
+    class _ClientTool:
+        class chat:
+            class completions:
+                @staticmethod
+                def create(**kwargs):
+                    return _RespTool()
+
+    with patch.object(llm, "_client", return_value=_ClientTool()):
+        with caplog.at_level(logging.INFO, logger="drumbeat.llm"):
+            out = call_llm("CURATOR", [{"role": "user", "content": "hi"}])
+    assert out["tool_calls"][0]["function"]["name"] == "search"
+    record = json.loads(caplog.records[-1].message)
+    assert record["response"]["tool_calls"][0]["id"] == "call_1"
 
 
 def test_call_llm_logging_failure_does_not_propagate(monkeypatch):

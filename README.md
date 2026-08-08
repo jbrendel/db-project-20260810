@@ -53,7 +53,7 @@ source .venv/bin/activate
 uv pip install -r requirements.txt
 
 # 3. Install frontend dependencies (in the frontend directory).
-npm install
+(cd frontend && npm install)
 
 # 4. Create your .env from the template and fill in the values.
 cp .env-example .env

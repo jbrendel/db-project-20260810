@@ -47,7 +47,11 @@ export function RunView() {
   if (!run) {
     return (
       <div className="page">
-        {stale && <div className="banner" role="status">Connection problem — retrying.</div>}
+        {stale && (
+          <div className="banner" role="status">
+            Connection problem — retrying.
+          </div>
+        )}
         <p className="muted">Loading…</p>
       </div>
     );

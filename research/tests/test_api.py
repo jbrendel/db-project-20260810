@@ -42,6 +42,30 @@ def test_create_rejects_unknown_borderline(client):
     assert resp.json()["field"] == "borderline_options"
 
 
+def test_create_rejects_non_boolean_borderline(client):
+    # A string "false" is truthy; it must be rejected, not silently enable.
+    resp = client.post("/api/runs/",
+                       {"input_text": "Acme",
+                        "borderline_options": {"reddit": "false"}},
+                       content_type="application/json")
+    assert resp.status_code == 400
+    assert resp.json()["field"] == "borderline_options"
+
+
+@pytest.mark.parametrize("qs", ["limit=abc", "offset=-1", "limit=0",
+                                "offset=xyz"])
+def test_list_rejects_bad_pagination(client, qs):
+    resp = client.get(f"/api/runs/?{qs}")
+    assert resp.status_code == 400
+    assert resp.json()["field"] in ("limit", "offset")
+
+
+def test_list_accepts_valid_pagination(client):
+    Run.objects.create(input_text="A", input_kind="name")
+    resp = client.get("/api/runs/?limit=10&offset=0")
+    assert resp.status_code == 200
+
+
 @pytest.mark.parametrize("bad", ["https://", "http://", "https://?x=1",
                                  "example..com"])
 def test_create_rejects_malformed_url(client, bad):

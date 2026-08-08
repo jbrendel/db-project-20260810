@@ -2,8 +2,10 @@
 from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 import tldextract
 
-# suffix_list_urls=() disables network refresh so tests are deterministic.
-_extract = tldextract.TLDExtract(suffix_list_urls=())
+# suffix_list_urls=() disables network refresh; cache_dir=None disables the
+# on-disk cache entirely, so URL handling is fully offline and never writes to
+# the user's home cache (which may be read-only). Uses the bundled snapshot.
+_extract = tldextract.TLDExtract(suffix_list_urls=(), cache_dir=None)
 
 _TRACKING_PREFIXES = ("utm_", "fbclid", "gclid", "mc_eid", "ref")
 
@@ -31,6 +33,21 @@ def detect_input_kind(text):
     # a URL even if an interior label is malformed (e.g. `example..com`, empty
     # domain); parse_homepage_input then rejects it at the API boundary.
     return "url" if ext.suffix else "name"
+
+
+def is_safe_http_url(url):
+    """True only for http(s) URLs with a hostname.
+
+    Blocks javascript:, data:, file:, mailto:, and protocol-relative URLs so an
+    external search result can never become an unsafe clickable link.
+    """
+    if not isinstance(url, str):
+        return False
+    try:
+        parts = urlsplit(url.strip())
+    except ValueError:
+        return False
+    return parts.scheme in ("http", "https") and bool(parts.hostname)
 
 
 def registrable_domain(host_or_url):

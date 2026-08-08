@@ -2,12 +2,28 @@ function formatDate(iso) {
   return new Date(iso).toLocaleDateString();
 }
 
+// Defense-in-depth: the backend already drops non-http(s) URLs, but never
+// render an unsafe scheme (javascript:/data:/file:) as a clickable href.
+function isSafeHttpUrl(url) {
+  try {
+    const parsed = new URL(url, window.location.origin);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 export function ContentItemRow({ item }) {
+  const safe = isSafeHttpUrl(item.url);
   return (
     <li className="item-row">
-      <a href={item.url} target="_blank" rel="noopener noreferrer">
-        {item.title}
-      </a>
+      {safe ? (
+        <a href={item.url} target="_blank" rel="noopener noreferrer">
+          {item.title}
+        </a>
+      ) : (
+        <span className="item-title-unsafe">{item.title}</span>
+      )}
       <div className="item-meta">
         <span className="item-source">{item.source}</span>
         {item.is_undated ? (

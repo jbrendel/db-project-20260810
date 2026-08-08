@@ -38,6 +38,8 @@ def tavily_search(query, lookback_months, max_results):
     items = []
     for r in raw["results"]:
         url = r["url"]
+        if not urls_util.is_safe_http_url(url):
+            continue  # drop non-http(s) results (javascript:/data:/file: etc.)
         published = _parse_date(r.get("published_date"))
         if not _within_window(published, lookback_months):
             continue  # drop dated-but-out-of-window results

@@ -31,6 +31,16 @@ def test_out_of_window_dated_item_dropped():
     assert items == []  # dated, older than the window -> dropped (§9 layer 2)
 
 
+def test_unsafe_scheme_dropped():
+    raw = {"results": [
+        {"title": "bad", "url": "javascript:alert(1)", "content": "c"},
+        {"title": "ok", "url": "https://x.com/a", "content": "c"},
+    ]}
+    with patch.object(tavily, "_raw_search", return_value=raw):
+        items = tavily.tavily_search("q", 36, 10)
+    assert [i["url"] for i in items] == ["https://x.com/a"]
+
+
 def test_unparseable_date_treated_as_undated(monkeypatch):
     raw = {"results": [{"title": "T", "url": "https://x.com/a",
            "content": "c", "published_date": "not-a-date"}]}

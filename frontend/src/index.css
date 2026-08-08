@@ -374,6 +374,11 @@ button.primary {
   font-weight: 600;
 }
 
+.item-title-unsafe {
+  font-weight: 600;
+  color: var(--muted);
+}
+
 .item-meta {
   display: flex;
   gap: 10px;

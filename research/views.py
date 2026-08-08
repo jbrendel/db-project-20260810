@@ -5,6 +5,7 @@ import os
 from django.db import transaction
 from django.utils import timezone
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.views import exception_handler as drf_exception_handler
@@ -66,11 +67,10 @@ def _dispatch(run_id):
 class RunListCreateView(APIView):
     def get(self, request):
         default = int(os.environ.get("RUN_LIST_PAGE_SIZE", "50"))
-        try:
-            limit = min(int(request.query_params.get("limit", default)), 200)
-            offset = int(request.query_params.get("offset", 0))
-        except ValueError:
-            limit, offset = default, 0
+        # Bad pagination input fails loud with a 400 (§16), not a silent
+        # fallback. Large limits are still capped at 200.
+        limit = min(_query_int(request, "limit", default, minimum=1), 200)
+        offset = _query_int(request, "offset", 0, minimum=0)
         qs = Run.objects.all()  # Meta.ordering = ["-id"] -> newest first
         count = qs.count()
         rows = qs[offset:offset + limit]
@@ -128,6 +128,20 @@ class RunRefreshView(APIView):
             transaction.on_commit(lambda: _dispatch(run.id))
         revoke_task_ids(old_ids)  # best-effort, outside the transaction
         return Response(RunDetailSerializer(run).data)
+
+
+def _query_int(request, name, default, minimum):
+    """Parse an integer query param or raise a 400 (name-tagged) envelope."""
+    raw = request.query_params.get(name)
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        raise ValidationError({name: f"{name} must be an integer."})
+    if value < minimum:
+        raise ValidationError({name: f"{name} must be >= {minimum}."})
+    return value
 
 
 def _get_or_404(pk):

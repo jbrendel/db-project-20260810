@@ -88,6 +88,14 @@ class RunCreateSerializer(serializers.Serializer):
                                     "months."})
 
         borderline = attrs.get("borderline_options") or {}
+        # Checkbox semantics: values must be real booleans. A string like
+        # "false" is truthy, so silently coercing it would wrongly enable a
+        # category — reject it (fail loud, §16).
+        for key, value in borderline.items():
+            if not isinstance(value, bool):
+                raise serializers.ValidationError(
+                    {"borderline_options":
+                     f"value for '{key}' must be true or false."})
         try:
             selected = selected_category_keys(borderline)
         except KeyError as exc:
