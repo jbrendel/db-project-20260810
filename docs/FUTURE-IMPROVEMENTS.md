@@ -14,6 +14,12 @@ are recorded here so they are not lost, and so the initial build stays focused.
   making a category non-empty, or include them only when the query/window
   context strongly implies recency.
 - Configurable per-run LLM overrides from the UI (currently env-only).
+- Stronger structured-output enforcement for LLM call-points. The build now uses
+  the OpenAI-compatible JSON mode (`response_format={"type":"json_object"}`, env
+  `LLM_JSON_MODE`) plus strict parsers. A further step is a schema-constrained
+  decoder / a library such as `instructor` (or provider `json_schema` mode) with
+  a bounded retry, to eliminate the remaining shape/truncation failure modes
+  rather than degrading the category to an error.
 - Per-category Tavily topic tuning. The initial build hardcodes `topic="news"`
   because Tavily's `days` time-window only applies under that topic; non-news
   categories (podcasts, newsletters, forums) would benefit from category-specific

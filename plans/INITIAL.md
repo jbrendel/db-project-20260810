@@ -77,8 +77,13 @@ Celery 5.4+, redis-py 5+, the `openai` Python SDK (OpenAI-compatible), and the
 
 ## 4. Process architecture and port propagation
 
-`./start_all.sh` launches these processes, each on a **dynamically chosen free
-port** discovered at runtime (no standard port is assumed):
+`./start_all.sh` launches these processes, each on a **runtime-discovered free
+port** (no standard port is assumed). Port selection is **deterministic**: each
+service prefers a fixed, non-standard port (defaults Redis 6390, Django 8390,
+Vite 5390; override with `DRUMBEAT_{REDIS,DJANGO,VITE}_PORT`) and only advances
+to the next sequential free port if the preferred one is busy. This keeps the
+Vite URL stable across restarts so the operator does not re-copy it each time,
+while still avoiding fixed-port collisions between two checkouts.
 
 1. Redis — Celery broker and result backend. Run as a Docker container with a
    **run-scoped, collision-free name** (e.g. `drumbeat-redis-<suffix>`; see
@@ -447,9 +452,10 @@ demoted the run to YELLOW; the completeness model above is the chosen semantics.
 
 Each status has a text label and icon in the UI, never colour alone (Section 13):
 - GREEN → "Complete" (check icon)
-- YELLOW → "Partial" (warning-triangle icon). UI copy clarifies Partial means
-  "some categories could not be fully researched", i.e. an error/timeout — NOT
-  merely that a category found nothing.
+- YELLOW → "Partial (N of M)" (warning-triangle icon; N categories finished
+  without error out of M). UI copy clarifies Partial means "some categories
+  could not be fully researched", i.e. an error/timeout — NOT merely that a
+  category found nothing.
 - RED → "Failed" (error/x icon)
 - BLUE → "Running" (spinner)
 
@@ -680,17 +686,20 @@ last-known data as stale (never silently frozen), and retries with backoff.
   is a long scroll; collapsible sections + an index keep it uncluttered). Each
   category section shows: the category name, its category status chip
   (vocabulary below), an item count, its summary, then its items — or a spinner
-  while pending/running. **Default expansion**: on first load, categories that
-  are non-empty or still working (pending/running) are expanded; empty finished
-  categories start collapsed. User toggles are remembered for the session.
+  while pending/running. **Default expansion**: on first load ALL categories
+  start collapsed (product decision, superseding the earlier "non-empty/working
+  expanded" rule), keeping the run-view compact; the user's per-section toggle
+  is remembered for the session.
 - Item row template (consistent, scannable): title (links out, opens new tab,
   `rel="noopener noreferrer"`), source, published date (or an "undated" marker),
   and a truncated one-line snippet. Items ordered by `display_order`.
 - Empty/error states are explicit:
   - Yellow category (finished, zero items): "No content found for this category
     in the selected time window."
-  - Red category (errored): shows the recorded `Category.error` and that it can
-    be retried via Refresh.
+  - Red category (errored): shows a GENERIC message that the category could not
+    be researched and can be retried via Refresh. The specific error (LLM/parse/
+    network) is written to the application log server-side, never shown to the
+    user (`Category.error` stores only the generic message).
   - Red run (nothing anywhere): a whole-run empty state instead of blank
     sections, plus the fixed overview message.
 - A **Refresh** button that, after an "Are you sure?" dialog, wipes and restarts
@@ -703,8 +712,10 @@ last-known data as stale (never silently frozen), and retries with backoff.
   (WCAG 1.4.1). Interactive controls are keyboard reachable; the modal traps
   focus and closes on Escape.
 - Run-status chip vocabulary (Section 8): GREEN "Complete" (check), YELLOW
-  "Partial" (warning triangle), RED "Failed" (error/x), BLUE "Running"
-  (spinner).
+  "Partial (N of M)" (warning triangle; N = categories that finished without
+  error, M = total categories, so the user sees the scope of the partial
+  result), RED "Failed" (error/x), BLUE "Running" (spinner). In the home list
+  (no per-category data) the yellow chip reads just "Partial".
 - **Category-status chip vocabulary** is separate, because a category's five
   states differ in meaning from a run's four (e.g. a yellow category means
   "none found", not "partial run"):
@@ -780,9 +791,12 @@ Fail loudly, everywhere, with the single scoped exception in Section 5.4:
 - Prefer `data[key]` / `obj.attr` over `.get()` / `hasattr` when the field is
   genuinely expected. Genuinely-optional external data (e.g. Tavily's missing
   publish date, Section 9) is modelled as nullable, not treated as malformed.
-- Per-category failures are caught only at the subtask boundary and recorded on
-  the Category (→ yellow/red run), which is deliberate partial-failure handling,
-  not silent swallowing.
+- Per-category failures are caught only at the subtask boundary, **logged to the
+  application log with a full traceback**, and recorded on the Category (→
+  yellow/red run) as a GENERIC user-safe message. This is deliberate
+  partial-failure handling, not silent swallowing: the operator sees the real
+  error in the log; the user sees only "could not be researched, retry via
+  Refresh". The fan-in degrade and non-fatal IDENTITY paths log likewise.
 
 
 ## 17. Concurrency and SQLite
