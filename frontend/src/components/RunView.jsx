@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import * as api from "../api";
 import { usePolling } from "../usePolling.js";
 import { StatusChip } from "./StatusChip.jsx";
@@ -47,6 +47,9 @@ export function RunView() {
   if (!run) {
     return (
       <div className="page">
+        <div className="run-nav">
+          <Link to="/">← All runs</Link>
+        </div>
         {stale && (
           <div className="banner" role="status">
             Connection problem — retrying.
@@ -67,8 +70,18 @@ export function RunView() {
     run.status === "red" &&
     (run.total_item_count ?? 0) === 0;
 
+  const categories = run.categories || [];
+  // "Successfully handled" = a category that finished without error (green or
+  // yellow). Errored/timed-out (red) categories are the ones that failed.
+  const succeeded = categories.filter(
+    (c) => c.status === "green" || c.status === "yellow",
+  ).length;
+
   return (
     <div className="page">
+      <div className="run-nav">
+        <Link to="/">← All runs</Link>
+      </div>
       <header className="run-header">
         <div>
           <h1>{run.input_text}</h1>
@@ -79,7 +92,12 @@ export function RunView() {
           </p>
         </div>
         <div className="run-header-right">
-          <StatusChip variant="run" status={run.status} />
+          <StatusChip
+            variant="run"
+            status={run.status}
+            succeeded={succeeded}
+            total={categories.length}
+          />
           <button onClick={onRefresh}>Refresh</button>
         </div>
       </header>

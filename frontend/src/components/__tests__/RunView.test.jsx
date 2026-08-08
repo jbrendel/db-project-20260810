@@ -35,6 +35,47 @@ test("red run with zero items shows whole-run empty state", async () => {
   expect(screen.queryByText("News articles")).not.toBeInTheDocument();
 });
 
+test("shows a link back to the runs list", async () => {
+  vi.spyOn(api, "getRun").mockResolvedValue({
+    id: 3,
+    input_text: "Acme",
+    status: "green",
+    started_at: "2025-01-01T00:00:00Z",
+    ended_at: "2025-01-01T00:01:00Z",
+    executive_overview: "ok",
+    total_item_count: 1,
+    warnings: [],
+    categories: [],
+  });
+  renderAt(3);
+  await waitFor(() =>
+    expect(screen.getByRole("link", { name: /all runs/i }))
+      .toHaveAttribute("href", "/"),
+  );
+});
+
+test("yellow run header shows the X-of-Y partial badge", async () => {
+  vi.spyOn(api, "getRun").mockResolvedValue({
+    id: 8,
+    input_text: "Acme",
+    status: "yellow",
+    started_at: "2025-01-01T00:00:00Z",
+    ended_at: "2025-01-01T00:02:00Z",
+    executive_overview: "partial",
+    total_item_count: 2,
+    warnings: [],
+    categories: [
+      { key: "news", status: "green", item_count: 2, items: [] },
+      { key: "podcasts", status: "yellow", item_count: 0, items: [] },
+      { key: "blog_posts", status: "red", item_count: 0, items: [] },
+    ],
+  });
+  renderAt(8);
+  await waitFor(() =>
+    expect(screen.getByText("Partial (2 of 3)")).toBeInTheDocument(),
+  );
+});
+
 test("shows the stale banner when the poll fn rejects", async () => {
   vi.spyOn(api, "getRun").mockRejectedValue(new Error("network"));
   renderAt(9);

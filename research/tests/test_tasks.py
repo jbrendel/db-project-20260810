@@ -40,6 +40,31 @@ def test_subtask_error_degrades_to_yellow():
     assert Category.objects.get(run=run, key="news").status == "green"
 
 
+def test_category_error_is_generic_and_logged(caplog):
+    import logging
+    run = Run.objects.create(input_text="Acme", input_kind="name",
+                             selected_categories=["news"],
+                             started_at=timezone.now())
+    Category.objects.create(run=run, key="news", display_order=0)
+    gen = run.generation
+
+    def boom(*a, **k):
+        raise ValueError("Expecting value: line 1 column 1 (char 0)")
+
+    with patch.object(tasks, "research_category", side_effect=boom):
+        with caplog.at_level(logging.ERROR, logger="drumbeat"):
+            tasks.run_category.run(run.id, gen, "news")
+
+    cat = Category.objects.get(run=run, key="news")
+    assert cat.status == "red"
+    # The user-facing error is generic; the raw parser message is NOT stored.
+    assert cat.error == tasks.GENERIC_CATEGORY_ERROR
+    assert "Expecting value" not in (cat.error or "")
+    # ...but the real error IS in the application log (the "no logs" bug).
+    assert "Expecting value" in caplog.text
+    assert "news" in caplog.text
+
+
 def test_stale_subtask_after_refresh_does_not_mark_red():
     # A subtask from the old generation must return normally, not mark red.
     run = Run.objects.create(input_text="Acme", input_kind="name")

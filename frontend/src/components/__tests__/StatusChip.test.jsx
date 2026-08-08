@@ -11,6 +11,11 @@ test("run yellow reads Partial", () => {
   expect(screen.getByText("Partial")).toBeInTheDocument();
 });
 
+test("run yellow shows X of Y when counts are provided", () => {
+  render(<StatusChip variant="run" status="yellow" succeeded={3} total={5} />);
+  expect(screen.getByText("Partial (3 of 5)")).toBeInTheDocument();
+});
+
 test("category green shows Found with count", () => {
   render(<StatusChip variant="category" status="green" count={4} />);
   expect(screen.getByText("Found (4)")).toBeInTheDocument();

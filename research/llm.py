@@ -28,16 +28,27 @@ def _client(cfg):
     return OpenAI(base_url=cfg["url"], api_key=cfg["api_key"])
 
 
-def call_llm(name, messages, tools=None, run_id=None, category_key=None):
-    """One request -> one response. Logs the full turn. No internal loop."""
+def call_llm(name, messages, tools=None, run_id=None, category_key=None,
+             json_object=False):
+    """One request -> one response. Logs the full turn. No internal loop.
+
+    json_object=True asks the provider to return a valid JSON object
+    (OpenAI-compatible JSON mode), which eliminates non-JSON/partial-prose
+    replies for the structured call-points. Disable via LLM_JSON_MODE=0 for a
+    provider that does not support response_format.
+    """
     import uuid
     import json
     cfg = resolve_llm_config(name)
     request_id = uuid.uuid4().hex
+    kwargs = {}
+    if json_object and os.environ.get("LLM_JSON_MODE", "1") != "0":
+        kwargs["response_format"] = {"type": "json_object"}
     started = time.time()
     resp = _client(cfg).chat.completions.create(
         model=cfg["model"], messages=messages, tools=tools or None,
         max_tokens=cfg["max_tokens"], temperature=cfg["temperature"],
+        **kwargs,
     )
     choice = resp.choices[0].message
     result = {

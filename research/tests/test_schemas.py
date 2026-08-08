@@ -53,9 +53,16 @@ def test_parse_curator_ok():
     assert data["accepted"][0]["url"] == "u"
 
 
-def test_parse_curator_missing_key_raises():
+def test_parse_curator_missing_done_raises():
     with pytest.raises(MalformedLLMOutput):
         parse_curator('{"accepted": [], "rejected": [], "duplicates": []}')
+
+
+def test_parse_curator_tolerates_missing_rejected_duplicates():
+    # rejected/duplicates are unused, so a compact response omitting them is OK.
+    data = parse_curator('{"accepted": [{"url": "u"}], "done": true}')
+    assert data["accepted"][0]["url"] == "u"
+    assert data["rejected"] == [] and data["duplicates"] == []
 
 
 def test_parse_curator_accepted_without_url_raises():

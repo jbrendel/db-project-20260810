@@ -48,35 +48,39 @@ if [ "$RESET_DB" = "1" ]; then
 fi
 
 # --- Free-port discovery (bind-check + short retry to reduce TOCTOU) -------
-# Any port passed as an argument is treated as already-taken, so three
-# sequential calls cannot hand out the same port to two services.
-find_free_port() {
-  local exclude=" $* " port tries=0
-  while [ "$tries" -lt 50 ]; do
-    port="$("$PYTHON" - <<'PY'
-import socket
-s = socket.socket()
-s.bind(("127.0.0.1", 0))
-print(s.getsockname()[1])
-s.close()
-PY
-)"
-    if [[ "$exclude" != *" $port "* ]] \
-       && ! (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null; then
-      echo "$port"; return 0
-    fi
-    tries=$((tries + 1))
-  done
-  die "Could not find a free port after 50 attempts."
+# Deterministic ports: each service prefers a fixed, non-standard port and only
+# moves to the NEXT sequential free port if that one is taken — so the Vite URL
+# (and Django/Redis) stay stable across restarts and you don't re-copy the FE
+# URL every time. Override a preference with DRUMBEAT_{REDIS,DJANGO,VITE}_PORT.
+PREFERRED_REDIS_PORT="${DRUMBEAT_REDIS_PORT:-6390}"
+PREFERRED_DJANGO_PORT="${DRUMBEAT_DJANGO_PORT:-8390}"
+PREFERRED_VITE_PORT="${DRUMBEAT_VITE_PORT:-5390}"
+
+_port_is_free() {  # <port> -> 0 if nothing is listening on 127.0.0.1:<port>
+  ! (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null
 }
 
-REDIS_PORT="$(find_free_port)"
-DJANGO_PORT="$(find_free_port "$REDIS_PORT")"
-VITE_PORT="$(find_free_port "$REDIS_PORT" "$DJANGO_PORT")"
+# Try <preferred>, then preferred+1, +2, ... (deterministic, never random),
+# skipping any port passed as a later argument (already assigned this run).
+find_port_from() {
+  local preferred="$1"; shift
+  local exclude=" $* " port
+  for ((port = preferred; port < preferred + 100; port++)); do
+    if [[ "$exclude" != *" $port "* ]] && _port_is_free "$port"; then
+      echo "$port"; return 0
+    fi
+  done
+  die "No free port found near ${preferred}."
+}
+
+REDIS_PORT="$(find_port_from "$PREFERRED_REDIS_PORT")"
+DJANGO_PORT="$(find_port_from "$PREFERRED_DJANGO_PORT" "$REDIS_PORT")"
+VITE_PORT="$(find_port_from "$PREFERRED_VITE_PORT" "$REDIS_PORT" "$DJANGO_PORT")"
 REDIS_URL="redis://127.0.0.1:${REDIS_PORT}/0"
 export REDIS_PORT DJANGO_PORT VITE_PORT REDIS_URL
 
 echo "Ports -> Redis:${REDIS_PORT}  Django:${DJANGO_PORT}  Vite:${VITE_PORT}"
+echo "Open the app at: http://localhost:${VITE_PORT}"
 echo "REDIS_URL=${REDIS_URL}"
 
 # --- Cleanup trap: kill child process GROUPS and remove the container ------

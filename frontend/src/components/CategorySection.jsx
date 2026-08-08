@@ -14,9 +14,10 @@ const CATEGORY_LABELS = {
   forums: "Forums",
 };
 
-function defaultExpanded(category) {
-  const working = category.status === "pending" || category.status === "running";
-  return working || (category.item_count ?? 0) > 0;
+// All categories start collapsed on first load; the user's per-section toggle
+// is remembered for the session (sessionStorage).
+function defaultExpanded() {
+  return false;
 }
 
 export function CategorySection({ category, sessionKey }) {
@@ -26,7 +27,7 @@ export function CategorySection({ category, sessionKey }) {
       const saved = sessionStorage.getItem(storageKey);
       if (saved !== null) return saved === "1";
     }
-    return defaultExpanded(category);
+    return defaultExpanded();
   });
 
   function toggle() {
@@ -66,9 +67,11 @@ export function CategorySection({ category, sessionKey }) {
             </p>
           )}
           {category.status === "red" && (
+            // Always a generic message — internal/LLM error detail is logged
+            // server-side, never shown to the user.
             <p className="field-error">
-              {category.error || "This category could not be researched."} You
-              can retry via Refresh.
+              This category could not be researched due to an error. You can
+              retry via Refresh.
             </p>
           )}
           {category.items && category.items.length > 0 && (

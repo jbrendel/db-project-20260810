@@ -41,23 +41,29 @@ test("green category renders items and Found chip", () => {
   expect(screen.getByText("undated")).toBeInTheDocument();
 });
 
-test("red category shows the error and retry hint", () => {
+test("red category shows a generic error, not the raw server message", () => {
   render(
     <CategorySection
       category={{
         key: "news",
         status: "red",
         item_count: 0,
-        error: "search failed",
+        error: "Expecting value: line 1 column 1 (char 0)",
         items: [],
       }}
     />,
   );
-  expect(screen.getByText(/search failed/i)).toBeInTheDocument();
+  // The raw internal error must NOT be shown; only a generic message.
+  expect(
+    screen.queryByText(/expecting value/i),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.getByText(/could not be researched due to an error/i),
+  ).toBeInTheDocument();
   expect(screen.getByText(/retry via refresh/i)).toBeInTheDocument();
 });
 
-test("item link opens safely in a new tab", () => {
+test("item link opens safely in a new tab (after expanding)", () => {
   render(
     <CategorySection
       category={{
@@ -77,19 +83,26 @@ test("item link opens safely in a new tab", () => {
       }}
     />,
   );
+  // Categories start collapsed; expand to reveal the (accessible) link.
+  fireEvent.click(screen.getByRole("button"));
   const link = screen.getByRole("link", { name: "Headline" });
   expect(link).toHaveAttribute("target", "_blank");
   expect(link).toHaveAttribute("rel", "noopener noreferrer");
 });
 
-test("collapsed empty category can be expanded", () => {
+test("categories start collapsed and can be expanded", () => {
   render(
     <CategorySection
-      category={{ key: "podcasts", status: "yellow", item_count: 0, items: [] }}
+      category={{
+        key: "news",
+        status: "green",
+        item_count: 3,
+        items: [],
+      }}
     />,
   );
   const head = screen.getByRole("button");
-  expect(head).toHaveAttribute("aria-expanded", "false"); // empty starts closed
+  expect(head).toHaveAttribute("aria-expanded", "false"); // collapsed default
   fireEvent.click(head);
   expect(head).toHaveAttribute("aria-expanded", "true");
 });

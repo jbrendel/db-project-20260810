@@ -11,7 +11,7 @@ def _plan_queries(company, category_key):
     prompt = (f"Company: {company}. Category: {category_key}. Return JSON "
               '{"queries": [...]} of focused web search queries.')
     out = call_llm("QUERY_PLANNER",
-                   [{"role": "user", "content": prompt}])
+                   [{"role": "user", "content": prompt}], json_object=True)
     max_q = int(os.environ.get("QUERY_PLANNER_MAX_QUERIES", "3"))
     return schemas.parse_query_planner(out["content"])[:max_q]
 
@@ -48,10 +48,10 @@ def _curator_prompt(company, category_key, pool):
         "URLs below, keep only genuine third-party content about the company; "
         "drop the company's own channels, aggregators, review/ecommerce pages, "
         "and off-topic results; dedupe. You MAY request one more search by "
-        'returning a tool_call {"query": "..."}. Return JSON '
-        '{"accepted": [{"url": ...}], "rejected": [{"url", "reason_code"}], '
-        '"duplicates": [{"url", "duplicate_of"}], "tool_call": {...}|null, '
-        f'"done": bool}}.\n{body}')
+        'returning a tool_call {"query": "..."}. Return ONLY compact JSON of '
+        'the accepted URLs, e.g. {"accepted": [{"url": "https://..."}], '
+        '"tool_call": null, "done": true}. Do NOT echo rejected or duplicate '
+        f'URLs.\n{body}')
 
 
 def _curate(company, category_key, pool, seen, lookback_months, exclusion):
@@ -66,7 +66,8 @@ def _curate(company, category_key, pool, seen, lookback_months, exclusion):
     accepted_urls, searches = [], 0
     for _ in range(max_iter):
         prompt = _curator_prompt(company, category_key, pool)
-        out = call_llm("CURATOR", [{"role": "user", "content": prompt}])
+        out = call_llm("CURATOR", [{"role": "user", "content": prompt}],
+                       json_object=True)
         data = schemas.parse_curator(out["content"])
         accepted_urls = [a["url"] for a in data["accepted"]]
         if data["done"] or not data["tool_call"] or searches >= max_search:
@@ -90,7 +91,7 @@ def _summary_prompt(company, category_key, items):
 def _summarize(company, category_key, items):
     prompt = _summary_prompt(company, category_key, items)
     out = call_llm("CATEGORY_SUMMARY",
-                   [{"role": "user", "content": prompt}])
+                   [{"role": "user", "content": prompt}], json_object=True)
     return schemas.parse_category_summary(out["content"])
 
 

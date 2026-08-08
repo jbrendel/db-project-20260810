@@ -53,13 +53,19 @@ def _require_url_list(value, label):
 
 def parse_curator(content):
     data = _load(content)
-    for key in ("accepted", "rejected", "duplicates", "done"):
+    # Only `accepted` and `done` are load-bearing; `rejected`/`duplicates` are
+    # accepted-but-unused, so they are optional. Requiring the model to echo
+    # long rejected/duplicate lists risks truncating the response past
+    # max_tokens (an "Unterminated string" JSON error).
+    for key in ("accepted", "done"):
         if key not in data:
             raise MalformedLLMOutput(f"curator missing key: {key}")
     if not isinstance(data["done"], bool):
         raise MalformedLLMOutput("done must be bool")
     _require_url_list(data["accepted"], "accepted")  # accepted is [{url}] only
     data.setdefault("tool_call", None)
+    data.setdefault("rejected", [])
+    data.setdefault("duplicates", [])
     return data
 
 

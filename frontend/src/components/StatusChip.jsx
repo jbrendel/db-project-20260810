@@ -22,11 +22,22 @@ function categoryMeta(status, count) {
   }
 }
 
-export function StatusChip({ variant, status, count }) {
-  const meta =
-    variant === "run"
-      ? RUN_LABELS[status] || { label: status, icon: "" }
-      : categoryMeta(status, count);
+export function StatusChip({ variant, status, count, succeeded, total }) {
+  let meta;
+  if (variant === "run") {
+    meta = RUN_LABELS[status] || { label: status, icon: "" };
+    // A Partial run reports how many categories completed without error, so
+    // the user sees the scope of the partial result (e.g. "Partial (3 of 5)").
+    if (
+      status === "yellow" &&
+      Number.isInteger(succeeded) &&
+      Number.isInteger(total)
+    ) {
+      meta = { label: `Partial (${succeeded} of ${total})`, icon: "⚠" };
+    }
+  } else {
+    meta = categoryMeta(status, count);
+  }
   const isSpinner = meta.icon === "spinner";
   return (
     <span className={`chip chip-${variant} chip-${status}`} data-status={status}>

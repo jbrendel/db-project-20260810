@@ -242,6 +242,15 @@ button.primary {
 }
 
 /* --- Run view --- */
+.run-nav {
+  padding: 8px 0;
+}
+
+.run-nav a {
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+
 .run-header {
   position: sticky;
   top: 0;

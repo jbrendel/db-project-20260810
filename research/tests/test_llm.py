@@ -123,6 +123,43 @@ def test_call_llm_logs_tool_calls(monkeypatch, caplog):
     assert record["response"]["tool_calls"][0]["id"] == "call_1"
 
 
+def test_json_object_sets_response_format(monkeypatch):
+    _set_defaults(monkeypatch)
+    captured = {}
+
+    class _Capturing:
+        class chat:
+            class completions:
+                @staticmethod
+                def create(**kwargs):
+                    captured.update(kwargs)
+                    return _FakeResp()
+
+    with patch.object(llm, "_client", return_value=_Capturing()):
+        call_llm("CURATOR", [{"role": "user", "content": "hi"}],
+                 json_object=True)
+    assert captured["response_format"] == {"type": "json_object"}
+
+
+def test_json_object_disabled_by_env(monkeypatch):
+    _set_defaults(monkeypatch)
+    monkeypatch.setenv("LLM_JSON_MODE", "0")
+    captured = {}
+
+    class _Capturing:
+        class chat:
+            class completions:
+                @staticmethod
+                def create(**kwargs):
+                    captured.update(kwargs)
+                    return _FakeResp()
+
+    with patch.object(llm, "_client", return_value=_Capturing()):
+        call_llm("CURATOR", [{"role": "user", "content": "hi"}],
+                 json_object=True)
+    assert "response_format" not in captured
+
+
 def test_call_llm_logging_failure_does_not_propagate(monkeypatch):
     _set_defaults(monkeypatch)
     with patch.object(llm, "_client", return_value=_FakeClient()), \

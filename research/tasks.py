@@ -1,4 +1,5 @@
 """Celery tasks: chord orchestration, fenced writes, reaper (Section 5)."""
+import logging
 import os
 from datetime import timedelta
 from django.db import transaction
@@ -15,6 +16,13 @@ from research.status import compute_run_status
 from research.categories import BORDERLINE_DOMAIN_MAP
 from research.llm import call_llm
 from research import schemas, urls_util
+
+_log = logging.getLogger("drumbeat")
+
+# Shown to the user for any failed category. The real error (with traceback) is
+# written to the application log, never surfaced in the API/UI (§16 fail-loud in
+# the logs, generic in the UI).
+GENERIC_CATEGORY_ERROR = "This category could not be researched due to an error."
 
 
 @shared_task
@@ -35,8 +43,11 @@ def _start_run_body(run_id):
             warnings.append("identity: domain unresolved; own-domain "
                             "exclusion skipped")
     except Exception as exc:  # IDENTITY is non-fatal (Section 5.4)
+        _log.warning("identity resolution failed for run %s: %s", run_id, exc,
+                     exc_info=exc)
         domain, profiles, handles = None, [], []
-        warnings.append(f"identity: {exc}")
+        warnings.append("identity: domain unresolved; own-domain exclusion "
+                        "skipped")
     # started_at is set at CREATE (Task 15, Codex impl point 20), not here.
     fenced_run_update(run_id, gen, resolved_domain=domain,
                       owned_profile_urls=profiles,
@@ -75,7 +86,7 @@ def run_category(run_id, generation, category_key):
     except (SupersededGeneration, Run.DoesNotExist):
         return  # refreshed/deleted/reaped; not a failure (§5.4)
     except Exception as exc:
-        _mark_category_red(run_id, generation, category_key, str(exc))
+        _mark_category_red(run_id, generation, category_key, exc)
     return category_key
 
 
@@ -105,12 +116,17 @@ def _run_category_body(run_id, generation, category_key):
         cat.save(update_fields=["summary", "status", "ended_at"])
 
 
-def _mark_category_red(run_id, generation, category_key, message):
+def _mark_category_red(run_id, generation, category_key, exc):
+    # Log the real error (with traceback) for the operator; store only a
+    # generic, user-safe message so LLM/parse internals never reach the UI.
+    _log.error("category %s failed for run %s: %s", category_key, run_id, exc,
+               exc_info=exc)
     try:
         with transaction.atomic():
             guard_generation(run_id, generation)
             Category.objects.filter(run_id=run_id, key=category_key).update(
-                status="red", error=message, ended_at=timezone.now())
+                status="red", error=GENERIC_CATEGORY_ERROR,
+                ended_at=timezone.now())
     except SupersededGeneration:
         return  # superseded run: do NOT mark red (expected control flow)
 
@@ -121,9 +137,10 @@ def finalize_run(results, run_id, generation):
         _finalize_body(run_id, generation)
     except (SupersededGeneration, Run.DoesNotExist):
         return  # refreshed/deleted/reaped: expected control flow
-    except Exception:
+    except Exception as exc:
         # Boundary 2 (§5.4): a REPORT/DB failure must still set a terminal
         # status, else the run is stuck BLUE until the reaper.
+        _log.error("finalize failed for run %s: %s", run_id, exc, exc_info=exc)
         _degrade_run_terminal(run_id, generation)
 
 
@@ -166,7 +183,7 @@ def _finalize_body(run_id, generation):
         overview = schemas.parse_report(call_llm(
             "REPORT", [{"role": "user",
                         "content": _report_prompt(run, kept_items)}],
-            run_id=run_id)["content"])
+            run_id=run_id, json_object=True)["content"])
     else:
         overview = ("No third-party content was found in the selected "
                     "time window.")

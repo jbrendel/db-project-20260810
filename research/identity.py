@@ -20,7 +20,7 @@ def resolve_identity(run):
               'owned_social_handles, confidence, matched}.')
     data = schemas.parse_identity(
         call_llm("IDENTITY", [{"role": "user", "content": prompt}],
-                 run_id=run.id)["content"])
+                 run_id=run.id, json_object=True)["content"])
     if not data["matched"] or not data["official_domain"]:
         return None, data["owned_profile_urls"], data["owned_social_handles"]
     return (urls_util.registrable_domain(data["official_domain"]),
