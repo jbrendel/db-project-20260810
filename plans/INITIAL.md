@@ -145,7 +145,13 @@ category subtask(run_id, generation, category_key):
   - set category status = running AND set started_at -- this write is itself
     generation-fenced (via the first-statement Run-row guard, Section 5.7), so a
     stale task cannot revive a category on an already-terminalized run
-  1. call_llm("QUERY_PLANNER") -> a small set of targeted queries
+  1. call_llm("QUERY_PLANNER") -> a small set of targeted queries. The prompt
+     MUST steer toward INDEPENDENT, THIRD-PARTY coverage ABOUT the company (per
+     category intent), passing the resolved own-domain so the planner avoids
+     queries that mainly surface the company's own channels. Otherwise a query
+     like "Google blog posts" returns Google's own blogs, which the CURATOR
+     then rejects wholesale, leaving the category empty. Pipeline LLM calls also
+     carry run_id/category_key for log correlation (Section 7).
   2. curator loop (bounded; Section 5.6):
        - tavily_search(...) constrained to the time window (Section 9)
        - call_llm("CURATOR") with the Tavily tool schema available; it judges
@@ -345,7 +351,7 @@ There are **five** named call-points, each independently configurable:
 | Name             | Purpose                                             |
 |------------------|-----------------------------------------------------|
 | IDENTITY         | Resolve official company domain (name-only input).  |
-| QUERY_PLANNER    | Turn company + category into search queries.        |
+| QUERY_PLANNER    | Company + category -> THIRD-PARTY search queries.   |
 | CURATOR          | Filter/exclude/dedupe; may request more searches.   |
 | CATEGORY_SUMMARY | One summary paragraph per category.                 |
 | REPORT           | One run-level executive overview.                   |
