@@ -7,7 +7,8 @@ import {
 // mounts this only when there is scored data (summary.scored_count > 0). The
 // headline + coverage notes always render; the chart needs >= 2 dated points,
 // otherwise an inline empty line replaces it (so overall/undated are never
-// hidden — e.g. when every scored item is undated). Null months render as gaps.
+// hidden — e.g. when every scored item is undated). Empty months are bridged
+// (connectNulls); dots mark the months that actually have data.
 export function SentimentGraph({ timeline, summary }) {
   const points = (timeline || []).filter((b) => b.avg_score !== null);
   const hasChart = points.length >= 2;
@@ -26,7 +27,10 @@ export function SentimentGraph({ timeline, summary }) {
             <YAxis domain={[-1, 1]} ticks={[-1, -0.5, 0, 0.5, 1]}
                    tick={{ fontSize: 12 }} width={36} />
             <ReferenceLine y={0} stroke="#888" />
-            <Tooltip formatter={(v) => [v, "avg sentiment"]} />
+            <Tooltip
+              formatter={(v, _n, item) => [
+                `${v} (${item?.payload?.item_count ?? 0} items)`,
+                "avg sentiment"]} />
             <Line type="monotone" dataKey="avg_score" stroke="#2f5bea"
                   connectNulls dot={{ r: 3 }} isAnimationActive={false} />
           </LineChart>

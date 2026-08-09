@@ -39,6 +39,32 @@ def test_sentiment_timeline_and_summary(client):
     assert "sentiment_score" in item0 and "sentiment_label" in item0
 
 
+def test_scored_item_outside_window_excluded_from_line_but_counted(client):
+    # An item published before the window is not on the timeline (its month is
+    # outside the emitted range) but still counts in the summary.
+    run = Run.objects.create(input_text="Acme", input_kind="name",
+                             lookback_months=1,
+                             started_at=datetime(2026, 3, 15, tzinfo=tz.utc))
+    cat = Category.objects.create(run=run, key="news", status="green")
+    _item(cat, "u1", datetime(2025, 6, 1, tzinfo=tz.utc), 0.5, "positive")
+    body = client.get(f"/api/runs/{run.id}/").json()
+    assert body["sentiment_timeline"] == [
+        {"month": "2026-03", "avg_score": None, "item_count": 0}]
+    assert body["sentiment_summary"]["scored_count"] == 1
+    assert body["sentiment_summary"]["overall_avg"] == 0.5
+
+
+def test_sentiment_timeline_spans_year_boundary(client):
+    run = Run.objects.create(input_text="Acme", input_kind="name",
+                             lookback_months=3,
+                             started_at=datetime(2026, 1, 15, tzinfo=tz.utc))
+    cat = Category.objects.create(run=run, key="news", status="green")
+    _item(cat, "u1", datetime(2025, 12, 3, tzinfo=tz.utc), 0.4, "positive")
+    tl = client.get(f"/api/runs/{run.id}/").json()["sentiment_timeline"]
+    assert [b["month"] for b in tl] == ["2025-11", "2025-12", "2026-01"]
+    assert tl[1]["avg_score"] == 0.4 and tl[1]["item_count"] == 1
+
+
 def test_sentiment_timeline_empty_run(client):
     run = Run.objects.create(input_text="Acme", input_kind="name",
                              lookback_months=1,
