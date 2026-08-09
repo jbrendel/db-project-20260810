@@ -47,3 +47,25 @@ def test_unparseable_date_treated_as_undated(monkeypatch):
     with patch.object(tavily, "_raw_search", return_value=raw):
         items = tavily.tavily_search("q", 36, 10)
     assert len(items) == 1 and items[0]["published_at"] is None
+
+
+def test_parse_date_handles_rfc2822_and_iso():
+    # Tavily returns RFC 2822; ISO must still work. Time-independent.
+    assert tavily._parse_date("Thu, 12 Feb 2026 21:57:14 GMT") == \
+        datetime(2026, 2, 12, 21, 57, 14, tzinfo=timezone.utc)
+    assert tavily._parse_date("2026-02-12") == \
+        datetime(2026, 2, 12, tzinfo=timezone.utc)
+    assert tavily._parse_date("") is None
+    assert tavily._parse_date("garbage") is None
+
+
+def test_rfc2822_date_from_tavily_is_dated(monkeypatch):
+    # Regression: real Tavily dates (RFC 2822) were parsed to None, leaving
+    # every item undated. A recent RFC 2822 date must survive within the window.
+    raw = {"results": [{"title": "T", "url": "https://x.com/a", "content": "c",
+           "published_date": "Thu, 12 Feb 2026 21:57:14 GMT"}]}
+    with patch.object(tavily, "_raw_search", return_value=raw), \
+         patch.object(tavily, "_within_window", return_value=True):
+        items = tavily.tavily_search("q", 36, 10)
+    assert items[0]["published_at"] == \
+        datetime(2026, 2, 12, 21, 57, 14, tzinfo=timezone.utc)
