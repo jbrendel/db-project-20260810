@@ -1,5 +1,5 @@
 import { render, screen, fireEvent } from "@testing-library/react";
-import { SentimentGraph } from "../SentimentGraph";
+import { SentimentGraph, monthTicks } from "../SentimentGraph";
 
 test("shows inline empty line but keeps headline with <2 dated points", () => {
   render(
@@ -79,4 +79,21 @@ test("items mode with no dated items shows an empty line", () => {
   fireEvent.click(screen.getByLabelText(/individual items/i));
   expect(screen.getByText(/no dated, scored items to plot/i))
     .toBeInTheDocument();
+});
+
+test("monthTicks returns month-start ticks across a short range", () => {
+  const ticks = monthTicks(Date.UTC(2026, 0, 10), Date.UTC(2026, 7, 20));
+  expect(ticks.length).toBeGreaterThanOrEqual(7);      // Jan..Aug
+  expect(new Date(ticks[0]).getUTCDate()).toBe(1);     // aligned to month 1st
+  expect(ticks.every((t) => new Date(t).getUTCDate() === 1)).toBe(true);
+});
+
+test("monthTicks thins a multi-year range to a readable count", () => {
+  const ticks = monthTicks(Date.UTC(2023, 0, 1), Date.UTC(2026, 7, 1));
+  expect(ticks.length).toBeGreaterThan(0);
+  expect(ticks.length).toBeLessThanOrEqual(14);
+});
+
+test("monthTicks handles an empty/invalid range", () => {
+  expect(monthTicks(5, 1)).toEqual([]);
 });

@@ -18,6 +18,33 @@ function monthMid(month) {
   return Date.UTC(y, m - 1, 15); // plot a month's average at mid-month
 }
 
+// First-of-month tick timestamps spanning [minMs, maxMs], thinned to ~<=12
+// ticks. A numeric time XAxis won't auto-generate readable date ticks, so we
+// supply them explicitly (fixes a bare x-axis in the scatter mode).
+export function monthTicks(minMs, maxMs) {
+  if (!(maxMs >= minMs)) return [];
+  const lo = new Date(minMs);
+  let y = lo.getUTCFullYear();
+  let m = lo.getUTCMonth();
+  const hi = new Date(maxMs);
+  const span = (hi.getUTCFullYear() - y) * 12 + (hi.getUTCMonth() - m);
+  const step = Math.max(1, Math.ceil((span + 1) / 12));
+  const ticks = [];
+  let t = Date.UTC(y, m, 1);
+  while (t <= maxMs) {
+    ticks.push(t);
+    m += step;
+    while (m >= 12) { m -= 12; y += 1; }
+    t = Date.UTC(y, m, 1);
+  }
+  return ticks;
+}
+
+function fmtMonth(t) {
+  return new Date(t).toLocaleDateString(undefined,
+    { year: "2-digit", month: "short" });
+}
+
 function fmtScore(s) {
   return s > 0 ? `+${s}` : `${s}`;
 }
@@ -86,6 +113,15 @@ export function SentimentGraph({ timeline, summary, items }) {
   const overall = summary?.overall_avg;
   const canChart = mode === "items" ? scatterData.length > 0 : hasLine;
 
+  // Explicit numeric-time domain + month ticks for the scatter mode's x-axis.
+  const xVals = scatterData.map((d) => d.x).concat(lineData.map((d) => d.x));
+  let xMin = xVals.length ? Math.min(...xVals) : 0;
+  let xMax = xVals.length ? Math.max(...xVals) : 0;
+  if (xMin === xMax) { // single point: pad by ~15 days so a tick renders
+    xMin -= 15 * 864e5;
+    xMax += 15 * 864e5;
+  }
+
   const openItem = (node) => {
     const url = node && (node.url || (node.payload && node.payload.url));
     if (url) window.open(url, "_blank", "noopener,noreferrer");
@@ -113,10 +149,9 @@ export function SentimentGraph({ timeline, summary, items }) {
         <ResponsiveContainer width="100%" height={260}>
           <ComposedChart margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
             <CartesianGrid strokeDasharray="3 3" />
-            <XAxis type="number" dataKey="x" scale="time"
-                   domain={["dataMin", "dataMax"]} tick={{ fontSize: 12 }}
-                   tickFormatter={(t) => new Date(t).toLocaleDateString(
-                     undefined, { year: "2-digit", month: "short" })} />
+            <XAxis type="number" dataKey="x" domain={[xMin, xMax]}
+                   ticks={monthTicks(xMin, xMax)} tick={{ fontSize: 12 }}
+                   tickFormatter={fmtMonth} />
             <YAxis domain={[-1, 1]} ticks={[-1, -0.5, 0, 0.5, 1]}
                    tick={{ fontSize: 12 }} width={36} />
             <ReferenceLine y={0} stroke="#888" />
