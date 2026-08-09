@@ -46,12 +46,19 @@ call-point, `SENTIMENT`.
   red or change any status. Sentiment never affects completeness (INITIAL.md §8
   is unchanged).
 - **Bounded.** Scoring runs on the already-curated, already-capped kept items,
-  further bounded by `SENTIMENT_MAX_ITEMS` (default = `MAX_ITEMS_PER_CATEGORY`).
-  A global `SENTIMENT_ENABLED` toggle (default `1`) disables the whole feature
-  (no calls, no chart) for cost control.
-- **Latency note.** Per-item calls are sequential inside the category subtask, so
-  a busy category gains latency. `SENTIMENT_MAX_ITEMS` and the existing
-  `task_soft_time_limit` bound the worst case; the cap is tunable.
+  further bounded by `SENTIMENT_MAX_ITEMS` (**default 10**, chosen so the worst
+  case fits comfortably under `task_soft_time_limit`; NOT the full
+  `MAX_ITEMS_PER_CATEGORY` of 20). A global `SENTIMENT_ENABLED` toggle (default
+  `1`) disables the whole feature (no calls, no chart) for cost control.
+- **Latency + soft-limit interaction.** Per-item calls are sequential inside the
+  category subtask (planner + curator + up to `SENTIMENT_MAX_ITEMS` + summary).
+  The default cap of 10 keeps this under the 180s `task_soft_time_limit`.
+  Critically, `score_sentiments` must **re-raise Celery's
+  `SoftTimeLimitExceeded`** (it subclasses `Exception`) rather than swallow it in
+  the per-item catch, so a genuine timeout still propagates to the subtask
+  boundary and marks the category red cleanly (a clean 180s red, not a 210s
+  hard-kill / stuck-blue). Operators who raise `SENTIMENT_MAX_ITEMS` should also
+  raise `SUBTASK_SOFT_LIMIT`.
 
 ### 3.1 Structured output contract
 
@@ -103,16 +110,23 @@ absent), so the window matches what was searched.
 
 - Add `recharts` as a frontend dependency (well-established; commit the updated
   lockfile).
-- `SentimentGraph` component in the run-view, placed directly below the executive
-  overview and above the category index. A responsive Recharts `LineChart` of
-  `avg_score` by `month`, y-axis fixed to [-1, 1], a reference line at 0, a
-  tooltip showing month / average / item count, and colour keyed to sign. Empty
-  months (null avg) render as gaps. When fewer than 2 dated+scored points exist,
-  the component shows a compact empty state ("Not enough dated, scored items to
-  chart a trend yet") instead of a chart.
-- A headline near the chart shows `sentiment_summary.overall_avg` as a label +
-  value; a one-line note reports `undated_scored_count` ("N undated items are
-  scored but not on the timeline") and `unknown_count` when > 0.
+- **Gating (avoid a noisy placeholder):** the run-view mounts `SentimentGraph`
+  ONLY when `sentiment_summary.scored_count > 0`. So a blue run with nothing
+  scored yet, and a finished run where the feature was disabled / nothing scored,
+  both simply omit the block (nothing to show) — it appears once real scores
+  exist. This is how "hidden while blue with no data" is realised.
+- `SentimentGraph` (mounted only when there is scored data) ALWAYS renders the
+  headline + coverage notes, then either the chart or an inline empty state:
+  - headline: `sentiment_summary.overall_avg` as a label + value;
+  - a responsive Recharts `LineChart` of `avg_score` by `month`, y fixed to
+    [-1, 1], a reference line at 0, a tooltip (month / average / item count),
+    `accessibilityLayer` enabled, colour keyed to sign, null months as gaps;
+  - when fewer than 2 dated+scored points exist (e.g. all scored items are
+    undated), an inline empty line ("Not enough dated, scored items to chart a
+    trend yet") REPLACES the chart but the headline + notes still show, so
+    overall sentiment and coverage are never hidden;
+  - a note reports `undated_scored_count` ("N undated items are scored but not on
+    the timeline") and, separately, `unknown_count` when > 0.
 - `ContentItemRow` gains a small sentiment pill: green (positive) / grey
   (neutral) / red (negative) with the label and score, or a muted "—" when
   unknown. Colour is never the only signal — the label text is always present
@@ -125,8 +139,15 @@ absent), so the window matches what was searched.
 - Run/category **status computation is unchanged** (INITIAL.md §8). Sentiment is
   informational and non-fatal.
 - New env (all optional, documented in `.env-example`): `SENTIMENT_ENABLED`
-  (default `1`), `SENTIMENT_MAX_ITEMS` (default = `MAX_ITEMS_PER_CATEGORY`),
+  (default `1`), `SENTIMENT_MAX_ITEMS` (default `10`),
   `SENTIMENT_LLM_URL|API_KEY|MODEL|TOKENS|TEMP` (fall back to `DEFAULT_LLM_*`).
+- `score_sentiments` is a NEW sanctioned non-fatal broad-except site within the
+  category subtask (CLAUDE.md's "sanctioned broad-except" invariant must be
+  updated to note it, alongside the three existing sites).
+- Minor, accepted: a URL appearing in two categories is scored in each before the
+  fan-in cross-category dedup removes the lower-priority copy — a few wasted
+  SENTIMENT calls, never a double-count (the deleted copy is gone before
+  serialisation).
 - Generation fencing, the three broad-except boundaries, and write ordering are
   all unchanged; sentiment persists inside the existing per-category fenced
   write.

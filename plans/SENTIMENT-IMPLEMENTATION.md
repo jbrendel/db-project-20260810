@@ -127,6 +127,13 @@ def test_parse_sentiment_bool_score_is_unknown():
 def test_parse_sentiment_non_json_raises():
     with pytest.raises(MalformedLLMOutput):
         parse_sentiment("not json")
+
+
+def test_parse_sentiment_non_object_json_is_unknown():
+    # Valid JSON that is not an object (e.g. a bare number/array) -> unknown,
+    # not an AttributeError.
+    assert parse_sentiment("5") == {"score": None, "label": None}
+    assert parse_sentiment("[1, 2]") == {"score": None, "label": None}
 ```
 
 Update the existing import at the top of the file to include `parse_sentiment`:
@@ -163,6 +170,8 @@ def parse_sentiment(content):
     rather than raising. Only a non-JSON body fails (via `_load`).
     """
     data = _load(content)
+    if not isinstance(data, dict):  # valid JSON but not an object -> unknown
+        return {"score": None, "label": None}
     raw = data.get("score")
     # bool is an int subclass in Python; exclude it explicitly.
     if isinstance(raw, bool) or not isinstance(raw, (int, float)):
@@ -270,13 +279,16 @@ git commit -m "feat: ContentItem sentiment_score/label fields"
   -> items` — mutates each item dict IN PLACE, setting `sentiment_score` and
   `sentiment_label` (both `None` on failure / when disabled / beyond the cap).
   `research_category` now calls it, so returned item dicts always carry the two
-  keys.
+  keys — GENUINELY EXPECTED on every item downstream (Task 4 relies on this).
 - Env: `SENTIMENT_ENABLED` (default `"1"`; `"0"` disables all scoring),
-  `SENTIMENT_MAX_ITEMS` (default = `MAX_ITEMS_PER_CATEGORY`, default `20`).
+  `SENTIMENT_MAX_ITEMS` (default `"10"`, deliberately below the 20-item
+  `MAX_ITEMS_PER_CATEGORY` so up-to-10 sequential per-item calls fit under the
+  180s `task_soft_time_limit`).
 
 - [ ] **Step 1: Write the failing tests**
 
-Append to `research/tests/test_pipeline.py`:
+Add `import pytest` to the top of `research/tests/test_pipeline.py` (it is not
+imported yet and the soft-limit test below needs `pytest.raises`), then append:
 
 ```python
 def test_score_sentiments_attaches(monkeypatch):
@@ -299,6 +311,16 @@ def test_score_sentiments_failure_is_nonfatal(monkeypatch):
         pipeline.score_sentiments("Acme", items)  # must NOT raise
     assert items[0]["sentiment_score"] is None
     assert items[0]["sentiment_label"] is None
+
+
+def test_score_sentiments_reraises_soft_time_limit(monkeypatch):
+    from celery.exceptions import SoftTimeLimitExceeded
+    monkeypatch.setenv("SENTIMENT_ENABLED", "1")
+    items = [{"title": "t", "url": "u", "source": "s",
+              "published_at": None, "snippet": "s"}]
+    with patch.object(pipeline, "call_llm", side_effect=SoftTimeLimitExceeded()):
+        with pytest.raises(SoftTimeLimitExceeded):  # must NOT be swallowed
+            pipeline.score_sentiments("Acme", items)
 
 
 def test_score_sentiments_disabled_makes_no_calls(monkeypatch):
@@ -338,10 +360,12 @@ Expected: FAIL (`AttributeError: module 'research.pipeline' has no attribute
 
 - [ ] **Step 3: Implement `score_sentiments` and wire it in**
 
-At the top of `research/pipeline.py`, add a logger under the existing imports:
+At the top of `research/pipeline.py`, add a logger and the soft-limit import
+under the existing imports:
 
 ```python
 import logging
+from celery.exceptions import SoftTimeLimitExceeded
 
 _log = logging.getLogger("drumbeat")
 ```
@@ -366,8 +390,7 @@ def score_sentiments(company, items, run_id=None, category_key=None):
     never affects category status (§5.4).
     """
     enabled = os.environ.get("SENTIMENT_ENABLED", "1") != "0"
-    cap = int(os.environ.get(
-        "SENTIMENT_MAX_ITEMS", os.environ.get("MAX_ITEMS_PER_CATEGORY", "20")))
+    cap = int(os.environ.get("SENTIMENT_MAX_ITEMS", "10"))
     for idx, item in enumerate(items):
         item["sentiment_score"] = None
         item["sentiment_label"] = None
@@ -381,6 +404,12 @@ def score_sentiments(company, items, run_id=None, category_key=None):
             data = schemas.parse_sentiment(out["content"])
             item["sentiment_score"] = data["score"]
             item["sentiment_label"] = data["label"]
+        except SoftTimeLimitExceeded:
+            # SoftTimeLimitExceeded IS an Exception; do NOT swallow it, or the
+            # 180s soft limit is lost and the task grinds to the 210s hard
+            # SIGKILL (stuck-blue). Let it propagate to the subtask boundary,
+            # which marks the category red cleanly (§5.4/§5.5).
+            raise
         except Exception as exc:  # non-fatal: unknown sentiment, keep the item
             _log.warning("sentiment scoring failed for %s: %s",
                          item.get("url"), exc)
@@ -456,8 +485,11 @@ Expected: FAIL (`sentiment_score` persists as `None` → `AssertionError`).
 - [ ] **Step 3: Persist the fields**
 
 In `research/tasks.py`, in `_run_category_body`, extend the `ContentItem(...)`
-built inside `bulk_create` to include the two fields (use `.get()` because a
-test/legacy item dict may omit them — genuinely optional here):
+built inside `bulk_create` to include the two fields. Use direct `i[...]`
+indexing (NOT `.get()`): `score_sentiments` (Task 3) sets both keys on EVERY
+item, so they are genuinely expected — CLAUDE.md prefers `data[key]` over
+`.get()` for expected fields, and a `KeyError` here should fail loud, not be
+masked:
 
 ```python
             ContentItem(
@@ -465,8 +497,21 @@ test/legacy item dict may omit them — genuinely optional here):
                 canonical_url=urls_util.canonicalize_url_for_dedupe(i["url"]),
                 source=i["source"], published_at=i["published_at"],
                 snippet=i["snippet"], display_order=n,
-                sentiment_score=i.get("sentiment_score"),
-                sentiment_label=i.get("sentiment_label"))
+                sentiment_score=i["sentiment_score"],
+                sentiment_label=i["sentiment_label"])
+```
+
+Because the persist now requires the keys, update the ONE existing test fake
+that returns items without them — `fake_research` in
+`test_subtask_error_degrades_to_yellow` (research/tests/test_tasks.py:23-28) —
+to include the two keys on its returned item (mirroring what `score_sentiments`
+always produces):
+
+```python
+        return {"items": [{"title": "t", "url": "https://n.com/a",
+                "source": "n.com", "published_at": None, "snippet": "s",
+                "sentiment_score": None, "sentiment_label": None}],
+                "summary": "sum"}
 ```
 
 - [ ] **Step 4: Run tests to verify they pass**
@@ -605,7 +650,7 @@ Add `"sentiment_timeline"` and `"sentiment_summary"` to
 `RunDetailSerializer.Meta.fields`.
 
 ```python
-    def _scored_items(self, obj):
+    def _all_items(self, obj):
         for cat in obj.categories.all():          # prefetched -> no N+1
             for item in cat.items.all():
                 yield item
@@ -614,7 +659,7 @@ Add `"sentiment_timeline"` and `"sentiment_summary"` to
         ref = obj.started_at or timezone.now()
         start_ym = _window_start(ref, obj.lookback_months)
         buckets = {}
-        for item in self._scored_items(obj):
+        for item in self._all_items(obj):
             if item.published_at is not None and \
                     item.sentiment_score is not None:
                 key = (item.published_at.year, item.published_at.month)
@@ -629,7 +674,7 @@ Add `"sentiment_timeline"` and `"sentiment_summary"` to
 
     def get_sentiment_summary(self, obj):
         scored, undated_scored, unknown = [], 0, 0
-        for item in self._scored_items(obj):
+        for item in self._all_items(obj):
             if item.sentiment_score is None:
                 unknown += 1
             else:
@@ -664,22 +709,38 @@ git commit -m "feat: server-side sentiment timeline + summary in run detail"
 ## Task 6: Recharts + SentimentGraph component
 
 **Files:**
-- Modify: `frontend/package.json` (+ generated `package-lock.json`)
+- Modify: `frontend/package.json` (+ generated `package-lock.json`),
+  `frontend/src/setupTests.js`
 - Create: `frontend/src/components/SentimentGraph.jsx`
 - Test: `frontend/src/components/__tests__/SentimentGraph.test.jsx`
 
 **Interfaces:**
-- Produces: `SentimentGraph({ timeline, summary })` — renders a Recharts line
-  chart of `avg_score` by `month` when ≥ 2 non-null points exist; otherwise a
-  compact empty state. Renders a headline (`summary.overall_avg`) and an
-  undated-note (`summary.undated_scored_count`) outside the chart.
+- Produces: `SentimentGraph({ timeline, summary })` — ALWAYS renders the headline
+  (`summary.overall_avg`) and the coverage notes (`undated_scored_count`, and
+  `unknown_count` when > 0); then renders a Recharts line chart of `avg_score`
+  by `month` when ≥ 2 non-null points exist, or an inline empty line otherwise.
+  The caller (Task 7) only mounts it when `summary.scored_count > 0`, so the
+  headline/notes always have something meaningful to show.
 
-- [ ] **Step 1: Add the dependency**
+- [ ] **Step 1: Add the dependency AND the ResizeObserver test shim**
 
 In `frontend/package.json`, add to `"dependencies"`:
 
 ```json
     "recharts": "^2.13.0"
+```
+
+Recharts' `ResponsiveContainer` uses `ResizeObserver`, which jsdom does NOT
+implement — without a shim the charted test throws `ResizeObserver is not
+defined`. Add a minimal global stub to `frontend/src/setupTests.js` (append):
+
+```js
+// jsdom has no ResizeObserver; recharts' ResponsiveContainer needs it.
+global.ResizeObserver = class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+};
 ```
 
 Then install and commit the lockfile BEFORE running Vitest (tests must never
@@ -693,31 +754,51 @@ cd frontend && npm install && cd ..
 
 Create `frontend/src/components/__tests__/SentimentGraph.test.jsx`:
 
+These tests assert only the headline / notes / empty-line TEXT, which render
+OUTSIDE `ResponsiveContainer`. They deliberately do NOT assert on chart SVG
+geometry — jsdom does no layout, so `ResponsiveContainer` yields a
+zero-dimension chart and any SVG assertion would be meaningless/flaky. The tests
+therefore verify branch selection and the coverage copy, not the pixels.
+
 ```jsx
 import { render, screen } from "@testing-library/react";
 import { SentimentGraph } from "../SentimentGraph";
 
-test("shows empty state with fewer than 2 dated points", () => {
+test("shows inline empty line but keeps headline with <2 dated points", () => {
   render(
     <SentimentGraph
       timeline={[{ month: "2026-01", avg_score: 0.5, item_count: 1 },
                  { month: "2026-02", avg_score: null, item_count: 0 }]}
-      summary={{ overall_avg: 0.5 }}
+      summary={{ overall_avg: 0.5, undated_scored_count: 2, unknown_count: 0 }}
     />,
   );
   expect(screen.getByText(/not enough dated/i)).toBeInTheDocument();
+  expect(screen.getByText(/overall sentiment/i)).toBeInTheDocument();
+  expect(screen.getByText(/2 undated items/i)).toBeInTheDocument();
 });
 
-test("renders headline and undated note when charted", () => {
+test("renders headline, undated + unknown notes when charted", () => {
   render(
     <SentimentGraph
       timeline={[{ month: "2026-01", avg_score: 0.5, item_count: 1 },
                  { month: "2026-02", avg_score: -0.2, item_count: 2 }]}
-      summary={{ overall_avg: 0.15, undated_scored_count: 3, unknown_count: 0 }}
+      summary={{ overall_avg: 0.15, undated_scored_count: 3, unknown_count: 4 }}
     />,
   );
   expect(screen.getByText(/overall sentiment/i)).toBeInTheDocument();
   expect(screen.getByText(/3 undated items/i)).toBeInTheDocument();
+  expect(screen.getByText(/4 items could not be scored/i)).toBeInTheDocument();
+});
+
+test("omits the unknown note when unknown_count is 0", () => {
+  render(
+    <SentimentGraph
+      timeline={[{ month: "2026-01", avg_score: 0.5, item_count: 1 },
+                 { month: "2026-02", avg_score: -0.2, item_count: 2 }]}
+      summary={{ overall_avg: 0.15, undated_scored_count: 0, unknown_count: 0 }}
+    />,
+  );
+  expect(screen.queryByText(/could not be scored/i)).not.toBeInTheDocument();
 });
 ```
 
@@ -736,46 +817,58 @@ import {
   ReferenceLine, CartesianGrid,
 } from "recharts";
 
-// Run-level average sentiment per month over the lookback window. Empty months
-// carry avg_score=null and render as gaps; the chart needs >= 2 real points.
+// Run-level average sentiment per month over the lookback window. The caller
+// mounts this only when there is scored data (summary.scored_count > 0). The
+// headline + coverage notes always render; the chart needs >= 2 dated points,
+// otherwise an inline empty line replaces it (so overall/undated are never
+// hidden — e.g. when every scored item is undated). Null months render as gaps.
 export function SentimentGraph({ timeline, summary }) {
   const points = (timeline || []).filter((b) => b.avg_score !== null);
-  if (points.length < 2) {
-    return (
-      <div className="sentiment-empty">
-        Not enough dated, scored items to chart a sentiment trend yet.
-      </div>
-    );
-  }
+  const hasChart = points.length >= 2;
   const overall = summary?.overall_avg;
   return (
     <div className="sentiment-graph">
       <div className="sentiment-headline">
         Overall sentiment: <strong>{overall ?? "—"}</strong>
       </div>
-      <ResponsiveContainer width="100%" height={220}>
-        <LineChart data={timeline}
-                   margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" />
-          <XAxis dataKey="month" tick={{ fontSize: 12 }} minTickGap={24} />
-          <YAxis domain={[-1, 1]} ticks={[-1, -0.5, 0, 0.5, 1]}
-                 tick={{ fontSize: 12 }} width={36} />
-          <ReferenceLine y={0} stroke="#888" />
-          <Tooltip formatter={(v) => [v, "avg sentiment"]} />
-          <Line type="monotone" dataKey="avg_score" stroke="#2f5bea"
-                connectNulls dot={{ r: 3 }} isAnimationActive={false} />
-        </LineChart>
-      </ResponsiveContainer>
+      {hasChart ? (
+        <ResponsiveContainer width="100%" height={220}>
+          <LineChart data={timeline} accessibilityLayer
+                     margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="month" tick={{ fontSize: 12 }} minTickGap={24} />
+            <YAxis domain={[-1, 1]} ticks={[-1, -0.5, 0, 0.5, 1]}
+                   tick={{ fontSize: 12 }} width={36} />
+            <ReferenceLine y={0} stroke="#888" />
+            <Tooltip formatter={(v) => [v, "avg sentiment"]} />
+            <Line type="monotone" dataKey="avg_score" stroke="#2f5bea"
+                  connectNulls dot={{ r: 3 }} isAnimationActive={false} />
+          </LineChart>
+        </ResponsiveContainer>
+      ) : (
+        <p className="muted sentiment-empty-line">
+          Not enough dated, scored items to chart a sentiment trend yet.
+        </p>
+      )}
       {summary?.undated_scored_count > 0 && (
         <p className="muted sentiment-note">
           {summary.undated_scored_count} undated items are scored but not on the
           timeline.
         </p>
       )}
+      {summary?.unknown_count > 0 && (
+        <p className="muted sentiment-note">
+          {summary.unknown_count} items could not be scored.
+        </p>
+      )}
     </div>
   );
 }
 ```
+
+Note: the `.sentiment-empty` full-box style from the design is no longer used
+(the empty state is now an inline line inside the graph card); Task 7's CSS adds
+`.sentiment-empty-line` instead.
 
 - [ ] **Step 5: Run tests to verify they pass, then commit**
 
@@ -784,6 +877,7 @@ Expected: PASS (all frontend tests).
 
 ```bash
 git add frontend/package.json frontend/package-lock.json \
+        frontend/src/setupTests.js \
         frontend/src/components/SentimentGraph.jsx \
         frontend/src/components/__tests__/SentimentGraph.test.jsx
 git commit -m "feat: SentimentGraph component (recharts)"
@@ -796,7 +890,8 @@ git commit -m "feat: SentimentGraph component (recharts)"
 **Files:**
 - Modify: `frontend/src/components/ContentItemRow.jsx`,
   `frontend/src/components/RunView.jsx`, `frontend/src/index.css`
-- Test: `frontend/src/components/__tests__/ContentItemRow.test.jsx`
+- Test: `frontend/src/components/__tests__/ContentItemRow.test.jsx`,
+  `frontend/src/components/__tests__/RunView.test.jsx`
 
 **Interfaces:**
 - Consumes: `item.sentiment_score`, `item.sentiment_label` (Task 5);
@@ -878,18 +973,82 @@ import { SentimentGraph } from "./SentimentGraph.jsx";
 
 Render the graph in the non-empty branch, immediately BEFORE the
 `<nav className="category-index" ...>` element (so it sits under the executive
-overview and above the category index):
+overview and above the category index). Gate the mount on
+`sentiment_summary.scored_count > 0` so a blue/in-progress run with nothing
+scored yet, and a finished run where scoring was disabled or produced nothing,
+simply omit the block (design §6 "hidden while blue with no data"):
 
 ```jsx
-          <SentimentGraph
-            timeline={run.sentiment_timeline}
-            summary={run.sentiment_summary}
-          />
+          {(run.sentiment_summary?.scored_count ?? 0) > 0 && (
+            <SentimentGraph
+              timeline={run.sentiment_timeline}
+              summary={run.sentiment_summary}
+            />
+          )}
 ```
+
+Add a test to `frontend/src/components/__tests__/RunView.test.jsx` verifying the
+gate (append; `renderAt`/`api` helpers already exist in that file):
+
+```jsx
+test("shows the sentiment graph only when there is scored data", async () => {
+  vi.spyOn(api, "getRun").mockResolvedValue({
+    id: 11, input_text: "Acme", status: "green",
+    started_at: "2026-01-01T00:00:00Z", ended_at: "2026-01-02T00:00:00Z",
+    executive_overview: "ok", total_item_count: 1, warnings: [],
+    categories: [{ key: "news", status: "green", item_count: 1, items: [] }],
+    sentiment_summary: { overall_avg: 0.3, scored_count: 2,
+                         undated_scored_count: 0, unknown_count: 0 },
+    sentiment_timeline: [
+      { month: "2026-01", avg_score: 0.3, item_count: 1 },
+      { month: "2026-02", avg_score: 0.3, item_count: 1 }],
+  });
+  renderAt(11);
+  await waitFor(() =>
+    expect(screen.getByText(/overall sentiment/i)).toBeInTheDocument());
+});
+
+test("hides the sentiment graph when nothing is scored", async () => {
+  vi.spyOn(api, "getRun").mockResolvedValue({
+    id: 12, input_text: "Acme", status: "green",
+    started_at: "2026-01-01T00:00:00Z", ended_at: "2026-01-02T00:00:00Z",
+    executive_overview: "ok", total_item_count: 1, warnings: [],
+    categories: [{ key: "news", status: "green", item_count: 1, items: [] }],
+    sentiment_summary: { overall_avg: null, scored_count: 0,
+                         undated_scored_count: 0, unknown_count: 0 },
+    sentiment_timeline: [{ month: "2026-01", avg_score: null, item_count: 0 }],
+  });
+  renderAt(12);
+  await waitFor(() => expect(screen.getByText("News articles"))
+    .toBeInTheDocument());
+  expect(screen.queryByText(/overall sentiment/i)).not.toBeInTheDocument();
+});
+```
+
+Note: the existing `RunView.test.jsx` fixtures omit `sentiment_summary`, so
+`(run.sentiment_summary?.scored_count ?? 0) > 0` is `false` there and the graph
+is not mounted — those tests are unaffected.
 
 - [ ] **Step 5: Add styles**
 
-Append to `frontend/src/index.css`:
+First, let the item meta row wrap so the added pill never overflows on narrow
+viewports (the row currently has two children; the pill is a third). In
+`frontend/src/index.css`, change the `.item-meta` rule to add `flex-wrap: wrap;`
+and `align-items: center;`:
+
+```css
+.item-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin-top: 2px;
+}
+```
+
+Then append the sentiment styles:
 
 ```css
 .sentiment-graph {
@@ -911,14 +1070,9 @@ Append to `frontend/src/index.css`:
   margin: 8px 0 0;
 }
 
-.sentiment-empty {
-  background: var(--surface);
-  border: 1px dashed var(--border);
-  border-radius: 10px;
-  padding: 16px;
-  margin: 16px 0;
-  color: var(--muted);
+.sentiment-empty-line {
   font-size: 0.9rem;
+  margin: 8px 0;
 }
 
 .sentiment-pill {
@@ -955,7 +1109,8 @@ Run (in `frontend/`): `npx vitest run` (expect PASS) and `npx vite build`
 ```bash
 git add frontend/src/components/ContentItemRow.jsx \
         frontend/src/components/RunView.jsx frontend/src/index.css \
-        frontend/src/components/__tests__/ContentItemRow.test.jsx
+        frontend/src/components/__tests__/ContentItemRow.test.jsx \
+        frontend/src/components/__tests__/RunView.test.jsx
 git commit -m "feat: per-item sentiment pill and run-view graph"
 ```
 
@@ -964,7 +1119,8 @@ git commit -m "feat: per-item sentiment pill and run-view graph"
 ## Task 8: Config/docs + full gate
 
 **Files:**
-- Modify: `.env-example`, `CLAUDE.md`, `plans/INITIAL.md`
+- Modify: `.env-example`, `CLAUDE.md`, `plans/INITIAL.md`,
+  `docs/FUTURE-IMPROVEMENTS.md`
 
 **Interfaces:** none (documentation + verification only).
 
@@ -973,27 +1129,59 @@ git commit -m "feat: per-item sentiment pill and run-view graph"
 In `.env-example`, under the optional-tunables section, add:
 
 ```bash
-# Sentiment scoring (per-item; § where the sentiment design lives)
+# Sentiment scoring (per-item; see plans/SENTIMENT-DESIGN.md)
 # SENTIMENT_ENABLED=1
-# SENTIMENT_MAX_ITEMS=20   # defaults to MAX_ITEMS_PER_CATEGORY
+# SENTIMENT_MAX_ITEMS=10   # per category; kept below the subtask soft limit
 ```
 
 In the per-call-point overrides comment block of `.env-example`, add
 `SENTIMENT` to the list of NAMEs (so `SENTIMENT_LLM_URL|API_KEY|MODEL|TOKENS|
 TEMP` are documented like the others).
 
-- [ ] **Step 2: Update the call-point docs**
+- [ ] **Step 2: Update ALL call-point enumerations + the broad-except invariant**
 
-In `CLAUDE.md`, in the "LLM configuration convention" paragraph, change the
-call-points list to include SENTIMENT:
-`IDENTITY, QUERY_PLANNER, CURATOR, CATEGORY_SUMMARY, REPORT, SENTIMENT`.
+There are THREE places that enumerate the (previously five) call-points, plus
+the broad-except invariant — update them together so the docs stay consistent:
 
-In `plans/INITIAL.md` §6, add a row to the call-point table:
-`| SENTIMENT | Per-item sentiment score for the trend graph (non-fatal). |`
-and note under §6 that SENTIMENT is best-effort/non-fatal like IDENTITY, with
-its output contract in `plans/SENTIMENT-DESIGN.md` §3.1.
+1. `CLAUDE.md`, "LLM configuration convention": change the call-points list to
+   `IDENTITY, QUERY_PLANNER, CURATOR, CATEGORY_SUMMARY, REPORT, SENTIMENT`.
+2. `CLAUDE.md`, "Non-obvious invariants" → the broad-except bullet currently says
+   the category subtask / fan-in callback / IDENTITY are the "ONLY three
+   sanctioned broad-except sites". Add `score_sentiments` (inside the category
+   subtask) as a fourth sanctioned non-fatal broad-except that re-raises
+   `SoftTimeLimitExceeded` and marks no category red.
+3. `plans/INITIAL.md` §6: change the sentence "There are **five** named
+   call-points" (near line 349) to "**six**", and add a table row:
+   `| SENTIMENT | Per-item sentiment score for the trend graph (non-fatal). |`.
+   Add a line under §6 that SENTIMENT is best-effort/non-fatal like IDENTITY with
+   its output contract in `plans/SENTIMENT-DESIGN.md` §3.1.
+4. `plans/INITIAL.md` §14 (near line 756): add `SENTIMENT` to the list of
+   optional per-call-point override NAMEs.
+5. `plans/INITIAL.md` §22 (progress table): add a milestone row
+   `|18 | Sentiment scoring + run-level trend graph | DONE |` (mark DONE when
+   this plan completes) so the base progress table reflects the feature.
 
-- [ ] **Step 3: Run the full gate**
+- [ ] **Step 3: Record deferred items in `docs/FUTURE-IMPROVEMENTS.md`**
+
+Append a "Sentiment" subsection to `docs/FUTURE-IMPROVEMENTS.md` (the file's
+purpose is "recorded here so they are not lost"), capturing what the design
+(§1/§3) deferred:
+
+```markdown
+## Sentiment
+- Per-category sentiment trend lines / a category toggle on the graph (the
+  initial build ships a single run-level line only).
+- A stored per-item sentiment rationale / explanation (only score + label are
+  stored initially).
+- Concurrent per-item scoring (the initial build scores sequentially inside the
+  category subtask, bounded by SENTIMENT_MAX_ITEMS; parallelism would let the
+  cap rise without approaching the subtask soft time limit).
+- Incremental / cached sentiment across refreshes (a refresh re-scores from
+  scratch, as it re-runs everything).
+- Richer chart interactions (brushing, per-point drill-down, exportable series).
+```
+
+- [ ] **Step 4: Run the full gate**
 
 ```bash
 ./run_tests.sh
@@ -1001,21 +1189,23 @@ its output contract in `plans/SENTIMENT-DESIGN.md` §3.1.
 
 Expected: exit 0; all backend and frontend tests pass.
 
-- [ ] **Step 4: Verify no long lines**
+- [ ] **Step 5: Verify no long lines (incl. both plan docs)**
 
 ```bash
 grep -rnE '.{95,}' --include="*.py" --include="*.jsx" --include="*.js" \
   --include="*.md" research frontend/src plans/SENTIMENT-DESIGN.md \
+  plans/SENTIMENT-IMPLEMENTATION.md docs/FUTURE-IMPROVEMENTS.md \
   .env-example CLAUDE.md | grep -v node_modules
 ```
 
 Expected: no output.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add .env-example CLAUDE.md plans/INITIAL.md plans/SENTIMENT-IMPLEMENTATION.md
-git commit -m "docs: document SENTIMENT call-point and sentiment env"
+git add .env-example CLAUDE.md plans/INITIAL.md docs/FUTURE-IMPROVEMENTS.md \
+        plans/SENTIMENT-IMPLEMENTATION.md
+git commit -m "docs: SENTIMENT call-point, invariant, env, and deferrals"
 ```
 
 ---
@@ -1029,10 +1219,18 @@ git commit -m "docs: document SENTIMENT call-point and sentiment env"
   invariance is asserted in T4 (`status == "green"` after a scored subtask) and
   by NOT touching `status.py`.
 - Type consistency: `score_sentiments` sets `sentiment_score`/`sentiment_label`
-  (T3) → persisted via `.get()` (T4) → serialized on items and aggregated
-  (T5) → consumed as `run.sentiment_timeline`/`sentiment_summary` and
+  on every item (T3) → persisted via `i["..."]` (T4, keys always present) →
+  serialized on items and aggregated (T5) → consumed as
+  `run.sentiment_timeline`/`sentiment_summary` and
   `item.sentiment_score`/`sentiment_label` (T6/T7). `parse_sentiment` returns
   `{"score", "label"}` (T1) consumed in T3.
-- Non-fatal guarantee: `score_sentiments` wraps each call in try/except and
-  never raises (T3); the subtask uses `.get()` so a missing key is `None`, not a
-  `KeyError` (T4); status computation is untouched.
+- Non-fatal guarantee: `score_sentiments` catches per-item exceptions and never
+  turns a category red (T3), EXCEPT it deliberately re-raises
+  `SoftTimeLimitExceeded` so a genuine timeout still marks the category red
+  cleanly at the subtask boundary rather than being masked (T3). Status
+  computation (`status.py`) is untouched, asserted by T4's `status == "green"`.
+- Review rounds (2026-08-09) folded in: recharts needs a `ResizeObserver` shim
+  in `setupTests.js` (T6); the graph is gated on `scored_count > 0` and always
+  shows headline + notes (T6/T7); `SoftTimeLimitExceeded` re-raise + lower cap
+  default (T3); `data[key]` not `.get()` (T4); all call-point enumerations and
+  the broad-except invariant updated together, deferrals recorded (T8).
