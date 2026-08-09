@@ -64,7 +64,7 @@ Vite + Vitest). Adds one frontend dependency: `recharts`.
 | Task | Deliverable                                    | Status |
 |------|------------------------------------------------|--------|
 | 1    | `parse_sentiment` schema                       | DONE   |
-| 2    | ContentItem sentiment fields + migration       | TODO   |
+| 2    | ContentItem sentiment fields + migration       | DONE   |
 | 3    | `score_sentiments` pipeline integration        | TODO   |
 | 4    | Subtask persists sentiment                     | TODO   |
 | 5    | Serializer timeline + summary + item fields    | TODO   |

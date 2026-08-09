@@ -56,6 +56,8 @@ class ContentItem(models.Model):
     published_at = models.DateTimeField(null=True, blank=True)
     snippet = models.TextField(default="")
     display_order = models.IntegerField(default=0)
+    sentiment_score = models.FloatField(null=True, blank=True)
+    sentiment_label = models.CharField(max_length=8, null=True, blank=True)
 
     class Meta:
         ordering = ["display_order"]
