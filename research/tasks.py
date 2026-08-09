@@ -14,7 +14,7 @@ from research.fencing import (guard_generation, bump_generation,
                               append_celery_task_id, SupersededGeneration)
 from research.status import compute_run_status
 from research.categories import BORDERLINE_DOMAIN_MAP
-from research.llm import call_llm
+from research.llm import call_llm, call_and_parse
 from research import schemas, urls_util
 
 _log = logging.getLogger("drumbeat")
@@ -183,11 +183,17 @@ def _finalize_body(run_id, generation):
     total = sum(kept.values())
     if total > 0:  # REPORT is a network call -> OUTSIDE any transaction.
         # Build the prompt from KEPT items only, so the overview never mentions
-        # a duplicate about to be removed (Codex impl-2 point 6).
-        overview = schemas.parse_report(call_llm(
-            "REPORT", [{"role": "user",
-                        "content": _report_prompt(run, kept_items)}],
-            run_id=run_id, json_object=True)["content"])
+        # a duplicate about to be removed (Codex impl-2 point 6). A REPORT that
+        # fails after retries falls back to a fixed message rather than degrading
+        # the whole run — the items are the point, not the prose.
+        try:
+            overview = call_and_parse(
+                call_llm, "REPORT",
+                [{"role": "user", "content": _report_prompt(run, kept_items)}],
+                schemas.parse_report, run_id=run_id)
+        except schemas.MalformedLLMOutput as exc:
+            _log.warning("report failed for run %s: %s", run_id, exc)
+            overview = "An executive overview could not be generated."
     else:
         overview = ("No third-party content was found in the selected "
                     "time window.")

@@ -166,3 +166,38 @@ def test_call_llm_logging_failure_does_not_propagate(monkeypatch):
          patch.object(llm._llm_logger, "info", side_effect=RuntimeError("x")):
         out = call_llm("REPORT", [{"role": "user", "content": "hi"}])
     assert out["content"] == "hello"  # a logging fault must not kill the call
+
+
+def test_call_and_parse_retries_then_succeeds():
+    from research.llm import call_and_parse
+    from research.schemas import parse_query_planner
+    calls = []
+
+    def fake(name, messages, **kw):
+        calls.append(messages)
+        content = "not json" if len(calls) == 1 else '{"queries": ["a"]}'
+        return {"content": content, "tool_calls": [], "usage": None}
+
+    result = call_and_parse(fake, "QUERY_PLANNER",
+                            [{"role": "user", "content": "q"}],
+                            parse_query_planner)
+    assert result == ["a"]
+    assert len(calls) == 2  # retried once after the malformed first reply
+    # the retry carries the corrective feedback
+    assert any("not valid" in m["content"].lower() for m in calls[1])
+
+
+def test_call_and_parse_raises_after_retries(monkeypatch):
+    from research.llm import call_and_parse
+    from research.schemas import parse_query_planner, MalformedLLMOutput
+    monkeypatch.setenv("LLM_MAX_RETRIES", "1")
+    n = []
+
+    def fake(name, messages, **kw):
+        n.append(1)
+        return {"content": "still not json", "tool_calls": [], "usage": None}
+
+    with pytest.raises(MalformedLLMOutput):
+        call_and_parse(fake, "QUERY_PLANNER",
+                       [{"role": "user", "content": "q"}], parse_query_planner)
+    assert len(n) == 2  # initial try + 1 retry

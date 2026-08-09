@@ -1,5 +1,5 @@
 """IDENTITY resolution: official domain + owned channels (Section 19)."""
-from research.llm import call_llm
+from research.llm import call_llm, call_and_parse
 from research.tavily import tavily_search
 from research import schemas, urls_util
 
@@ -31,9 +31,9 @@ def resolve_identity(run):
         'Example: {"official_domain": "apple.com", "owned_profile_urls": [], '
         '"owned_social_handles": ["@apple"], "confidence": "high", '
         '"matched": true}')
-    data = schemas.parse_identity(
-        call_llm("IDENTITY", [{"role": "user", "content": prompt}],
-                 run_id=run.id, json_object=True)["content"])
+    data = call_and_parse(
+        call_llm, "IDENTITY", [{"role": "user", "content": prompt}],
+        schemas.parse_identity, run_id=run.id)
     if not data["matched"] or not data["official_domain"]:
         return None, data["owned_profile_urls"], data["owned_social_handles"]
     return (urls_util.registrable_domain(data["official_domain"]),

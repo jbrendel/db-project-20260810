@@ -74,3 +74,34 @@ def call_llm(name, messages, tools=None, run_id=None, category_key=None,
     except Exception as exc:  # a logging failure must not kill the run
         logging.getLogger("drumbeat").warning("llm log failed: %s", exc)
     return result
+
+
+def call_and_parse(call_fn, name, messages, parse_fn, run_id=None,
+                   category_key=None, json_object=True):
+    """Call an LLM and parse its JSON, RETRYING on malformed output.
+
+    `call_fn` is a `call_llm` reference (passed in so the caller's mockable seam
+    is used). On `MalformedLLMOutput` the model is re-prompted with the
+    validation error appended, up to LLM_MAX_RETRIES times, then the error is
+    raised for the caller to handle non-fatally. Every attempt is logged by
+    `call_llm` itself (§7), so retries are visible.
+    """
+    from research.schemas import MalformedLLMOutput
+    max_retries = int(os.environ.get("LLM_MAX_RETRIES", "2"))
+    convo = list(messages)
+    last_exc = None
+    for _ in range(max_retries + 1):
+        out = call_fn(name, convo, run_id=run_id, category_key=category_key,
+                      json_object=json_object)
+        try:
+            return parse_fn(out["content"])
+        except MalformedLLMOutput as exc:
+            last_exc = exc
+            convo = convo + [
+                {"role": "assistant", "content": out["content"]},
+                {"role": "user", "content": (
+                    f"Your previous reply was not valid ({exc}). Reply with "
+                    "ONLY valid JSON matching the required shape — no prose, "
+                    "no markdown.")},
+            ]
+    raise last_exc

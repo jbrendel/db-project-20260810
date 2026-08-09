@@ -2,11 +2,12 @@
 import logging
 import os
 from celery.exceptions import SoftTimeLimitExceeded
-from research.llm import call_llm
+from research.llm import call_llm, call_and_parse
 from research.tavily import tavily_search
 from research.exclusion import is_excluded
 from research.urls_util import canonicalize_url_for_dedupe
 from research import schemas
+from research.schemas import MalformedLLMOutput
 
 _log = logging.getLogger("drumbeat")
 
@@ -45,9 +46,16 @@ def _plan_queries(company, category_key, domain=None, run_id=None):
         "with review/analysis/commentary/coverage terms; avoid queries that "
         'would mainly return the company\'s own pages). Return JSON '
         '{"queries": [...]} — queries only, no commentary.')
-    out = call_llm("QUERY_PLANNER", [{"role": "user", "content": prompt}],
-                   json_object=True, run_id=run_id, category_key=category_key)
-    return schemas.parse_query_planner(out["content"])[:max_q]
+    try:
+        queries = call_and_parse(
+            call_llm, "QUERY_PLANNER", [{"role": "user", "content": prompt}],
+            schemas.parse_query_planner, run_id=run_id,
+            category_key=category_key)
+    except MalformedLLMOutput as exc:  # non-fatal: fall back to a basic query
+        _log.warning("query planner failed for %s/%s: %s; using fallback",
+                     company, category_key, exc)
+        queries = [f"{company} {category_key.replace('_', ' ')}"]
+    return queries[:max_q]
 
 
 def _ingest(queries, lookback_months, exclusion, pool, seen):
@@ -113,10 +121,16 @@ def _curate(company, category_key, pool, seen, lookback_months, exclusion,
     accepted_urls, searches = [], 0
     for _ in range(max_iter):
         prompt = _curator_prompt(company, category_key, pool)
-        out = call_llm("CURATOR", [{"role": "user", "content": prompt}],
-                       json_object=True, run_id=run_id,
-                       category_key=category_key)
-        data = schemas.parse_curator(out["content"])
+        try:
+            data = call_and_parse(
+                call_llm, "CURATOR", [{"role": "user", "content": prompt}],
+                schemas.parse_curator, run_id=run_id, category_key=category_key)
+        except MalformedLLMOutput as exc:
+            # Non-fatal: keep the exclusion-filtered candidate pool rather than
+            # failing the whole category (better to show unfiltered findings).
+            _log.warning("curator failed for %s/%s: %s; keeping candidate pool",
+                         company, category_key, exc)
+            return list(pool)
         accepted_urls = [a["url"] for a in data["accepted"]]
         if data["done"] or not data["tool_call"] or searches >= max_search:
             break
@@ -138,10 +152,14 @@ def _summary_prompt(company, category_key, items):
 
 def _summarize(company, category_key, items, run_id=None):
     prompt = _summary_prompt(company, category_key, items)
-    out = call_llm("CATEGORY_SUMMARY",
-                   [{"role": "user", "content": prompt}], json_object=True,
-                   run_id=run_id, category_key=category_key)
-    return schemas.parse_category_summary(out["content"])
+    try:
+        return call_and_parse(
+            call_llm, "CATEGORY_SUMMARY", [{"role": "user", "content": prompt}],
+            schemas.parse_category_summary, run_id=run_id,
+            category_key=category_key)
+    except MalformedLLMOutput as exc:  # non-fatal: no summary, keep the items
+        _log.warning("category summary failed for %s: %s", category_key, exc)
+        return None
 
 
 def _sentiment_prompt(company, item):
@@ -175,11 +193,11 @@ def score_sentiments(company, items, run_id=None, category_key=None):
         if not enabled or idx >= cap:
             continue
         try:
-            out = call_llm(
-                "SENTIMENT",
+            data = call_and_parse(
+                call_llm, "SENTIMENT",
                 [{"role": "user", "content": _sentiment_prompt(company, item)}],
-                json_object=True, run_id=run_id, category_key=category_key)
-            data = schemas.parse_sentiment(out["content"])
+                schemas.parse_sentiment, run_id=run_id,
+                category_key=category_key)
             item["sentiment_score"] = data["score"]
             item["sentiment_label"] = data["label"]
             item["sentiment_summary"] = data["summary"]

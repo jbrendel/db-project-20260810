@@ -135,3 +135,33 @@ def test_score_sentiments_respects_cap(monkeypatch):
         pipeline.score_sentiments("Acme", items)
     assert llm.call_count == 1                 # only the first item scored
     assert items[1]["sentiment_score"] is None  # beyond the cap -> unknown
+
+
+_BAD = {"content": "not json", "tool_calls": [], "usage": None}
+
+
+def test_plan_queries_falls_back_on_failure(monkeypatch):
+    monkeypatch.setenv("LLM_MAX_RETRIES", "0")
+    with patch.object(pipeline, "call_llm", return_value=_BAD):
+        queries = pipeline._plan_queries("Acme Co", "blog_posts")
+    assert queries == ["Acme Co blog posts"]  # non-fatal fallback query
+
+
+def test_curate_keeps_pool_on_failure(monkeypatch):
+    monkeypatch.setenv("LLM_MAX_RETRIES", "0")
+    from research.exclusion import ExclusionSet
+    pool = [{"title": "T", "url": "https://n.com/y", "source": "n.com",
+             "published_at": None, "snippet": "s"}]
+    es = ExclusionSet(None, [], [], set())
+    with patch.object(pipeline, "call_llm", return_value=_BAD), \
+         patch.object(pipeline, "tavily_search", return_value=[]):
+        items = pipeline._curate("Acme", "news", pool, set(), 36, es)
+    assert [i["url"] for i in items] == ["https://n.com/y"]  # pool kept
+
+
+def test_summarize_returns_none_on_failure(monkeypatch):
+    monkeypatch.setenv("LLM_MAX_RETRIES", "0")
+    with patch.object(pipeline, "call_llm", return_value=_BAD):
+        out = pipeline._summarize("Acme", "news",
+                                  [{"title": "t", "snippet": "s"}])
+    assert out is None

@@ -257,3 +257,20 @@ def test_subtask_sentiment_unknown_still_green():
 
     assert Category.objects.get(run=run, key="news").status == "green"
     assert ContentItem.objects.get(category__run=run).sentiment_score is None
+
+
+def test_finalize_report_failure_falls_back_not_degraded(monkeypatch):
+    monkeypatch.setenv("LLM_MAX_RETRIES", "0")
+    run = Run.objects.create(input_text="Acme", input_kind="name",
+                             status="blue", started_at=timezone.now())
+    cat = Category.objects.create(run=run, key="news", status="green")
+    ContentItem.objects.create(category=cat, title="t", url="https://n.com/a",
+        canonical_url="https://n.com/a", source="n.com")
+    bad = {"content": "not json", "tool_calls": [], "usage": None}
+    with patch.object(tasks, "call_llm", return_value=bad):
+        tasks.finalize_run.run([], run.id, run.generation)
+    run.refresh_from_db()
+    # Run finalizes normally (items exist) with a fallback overview, NOT the
+    # degraded "Report generation failed" path.
+    assert run.status == "green"
+    assert "could not be generated" in run.executive_overview
