@@ -471,3 +471,53 @@ button.primary {
 .sentiment-unknown {
   color: var(--muted);
 }
+
+.sentiment-modes {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 8px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.sentiment-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.sentiment-tip {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  max-width: 280px;
+  font-size: 0.8rem;
+  box-shadow: 0 2px 10px rgba(20, 26, 35, 0.12);
+}
+
+.tip-title {
+  font-weight: 600;
+  margin-bottom: 2px;
+  color: var(--text);
+}
+
+.tip-meta {
+  color: var(--muted);
+}
+
+.tip-snippet {
+  margin-top: 4px;
+  color: var(--text);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+.tip-hint {
+  margin-top: 4px;
+  color: var(--muted);
+  font-style: italic;
+}

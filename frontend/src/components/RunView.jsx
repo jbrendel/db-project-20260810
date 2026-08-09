@@ -78,6 +78,12 @@ export function RunView() {
     (c) => c.status === "green" || c.status === "yellow",
   ).length;
 
+  // Dated + scored items feed the "Individual items" scatter mode of the graph.
+  const scoredItems = categories
+    .flatMap((c) => c.items || [])
+    .filter((i) => i.published_at && i.sentiment_score !== null &&
+                   i.sentiment_score !== undefined);
+
   return (
     <div className="page">
       <div className="run-nav">
@@ -132,6 +138,7 @@ export function RunView() {
             <SentimentGraph
               timeline={run.sentiment_timeline}
               summary={run.sentiment_summary}
+              items={scoredItems}
             />
           )}
           <nav className="category-index" aria-label="Categories">
