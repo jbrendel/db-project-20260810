@@ -25,7 +25,8 @@ def test_subtask_error_degrades_to_yellow():
             raise RuntimeError("boom")
         return {"items": [{"title": "t", "url": "https://n.com/a",
                 "source": "n.com", "published_at": None, "snippet": "s",
-                "sentiment_score": None, "sentiment_label": None}],
+                "sentiment_score": None, "sentiment_label": None,
+                "sentiment_summary": None}],
                 "summary": "sum"}
 
     with patch.object(tasks, "research_category", side_effect=fake_research), \
@@ -223,7 +224,8 @@ def test_subtask_persists_sentiment():
     def fake(company, key, months, exclusion, run_id=None):
         return {"items": [{"title": "t", "url": "https://n.com/a",
                 "source": "n.com", "published_at": None, "snippet": "s",
-                "sentiment_score": 0.5, "sentiment_label": "positive"}],
+                "sentiment_score": 0.5, "sentiment_label": "positive",
+                "sentiment_summary": "Upbeat coverage."}],
                 "summary": "s"}
 
     with patch.object(tasks, "research_category", side_effect=fake):
@@ -246,7 +248,8 @@ def test_subtask_sentiment_unknown_still_green():
     def fake(company, key, months, exclusion, run_id=None):
         return {"items": [{"title": "t", "url": "https://n.com/a",
                 "source": "n.com", "published_at": None, "snippet": "s",
-                "sentiment_score": None, "sentiment_label": None}],
+                "sentiment_score": None, "sentiment_label": None,
+                "sentiment_summary": None}],
                 "summary": "s"}
 
     with patch.object(tasks, "research_category", side_effect=fake):

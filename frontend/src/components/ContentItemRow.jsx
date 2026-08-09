@@ -53,7 +53,13 @@ export function ContentItemRow({ item }) {
         <SentimentPill score={item.sentiment_score}
                        label={item.sentiment_label} />
       </div>
-      {item.snippet && <p className="item-snippet">{item.snippet}</p>}
+      {/* Prefer the sentiment-aware summary (reflects the rated sentiment);
+          fall back to the raw excerpt when it is absent. */}
+      {(item.sentiment_summary || item.snippet) && (
+        <p className="item-snippet">
+          {item.sentiment_summary || item.snippet}
+        </p>
+      )}
     </li>
   );
 }

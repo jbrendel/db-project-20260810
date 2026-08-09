@@ -20,9 +20,11 @@ def _raw_search(query, start_days, end_days, max_results):
     today = datetime.now(timezone.utc).date()
     start = today - timedelta(days=start_days)
     end = today - timedelta(days=end_days)
+    # include_raw_content pulls the full page text (incl. comment sections), so
+    # sentiment reflects the body, not just a positive-sounding headline.
     return client.search(query=query, max_results=max_results, topic="news",
                          start_date=start.isoformat(),
-                         end_date=end.isoformat())
+                         end_date=end.isoformat(), include_raw_content=True)
 
 
 def _time_buckets(lookback_months):
@@ -100,6 +102,7 @@ def tavily_search(query, lookback_months, max_results):
     deduped by canonical URL across buckets. Undated items are kept.
     """
     max_snippet = int(os.environ.get("MAX_SNIPPET_CHARS", "300"))
+    max_content = int(os.environ.get("SENTIMENT_MAX_CONTENT_CHARS", "1500"))
     items, seen = [], set()
     for start_days, end_days in _time_buckets(lookback_months):
         raw = _raw_search(query, start_days, end_days, max_results)
@@ -116,11 +119,14 @@ def tavily_search(query, lookback_months, max_results):
             if not _within_window(published, lookback_months):
                 continue  # drop dated-but-out-of-window results
             seen.add(key)
+            full = r.get("raw_content") or r.get("content") or ""
             items.append({
                 "title": r["title"],
                 "url": url,
                 "source": urls_util.registrable_domain(url) or "",
                 "published_at": published,
                 "snippet": (r.get("content") or "")[:max_snippet],
+                # Fuller text for sentiment scoring only (not persisted).
+                "content": full[:max_content],
             })
     return items

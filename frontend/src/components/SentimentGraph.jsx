@@ -79,7 +79,8 @@ export function SentimentGraph({ timeline, summary, items }) {
   const scatterData = (items || []).map((i) => ({
     x: new Date(i.published_at).getTime(), y: i.sentiment_score,
     sentiment_label: i.sentiment_label, title: i.title, source: i.source,
-    snippet: i.snippet, url: i.url, category: i.category,
+    snippet: i.sentiment_summary || i.snippet, url: i.url,
+    category: i.category,
   }));
 
   const overall = summary?.overall_avg;

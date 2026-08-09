@@ -145,12 +145,18 @@ def _summarize(company, category_key, items, run_id=None):
 
 
 def _sentiment_prompt(company, item):
-    snip = int(os.environ.get("MAX_SNIPPET_CHARS", "300"))
+    cap = int(os.environ.get("SENTIMENT_MAX_CONTENT_CHARS", "1500"))
+    text = (item.get("content") or item.get("snippet") or "")[:cap]
     return (
-        f'Rate the sentiment toward "{company}" expressed by this item. '
-        'Return JSON {"score": <number from -1 (very negative) to 1 (very '
-        'positive)>, "label": "positive"|"neutral"|"negative"}.\n'
-        f'Title: {item["title"]}\nSnippet: {item["snippet"][:snip]}')
+        f'Assess the sentiment toward "{company}" expressed by this item, from '
+        "its FULL content below (headline AND body/comments) — NOT just the "
+        "headline, which can read positive while the actual coverage or "
+        "commenters are negative. Return JSON with: \"score\" (number from -1 "
+        'very negative to 1 very positive), "label" '
+        '("positive"|"neutral"|"negative"), and "summary" (one sentence that '
+        "reflects the ACTUAL sentiment and why — e.g. note when commenters are "
+        "negative despite a positive-sounding headline).\n"
+        f'Title: {item["title"]}\nContent: {text}')
 
 
 def score_sentiments(company, items, run_id=None, category_key=None):
@@ -165,6 +171,7 @@ def score_sentiments(company, items, run_id=None, category_key=None):
     for idx, item in enumerate(items):
         item["sentiment_score"] = None
         item["sentiment_label"] = None
+        item["sentiment_summary"] = None
         if not enabled or idx >= cap:
             continue
         try:
@@ -175,6 +182,7 @@ def score_sentiments(company, items, run_id=None, category_key=None):
             data = schemas.parse_sentiment(out["content"])
             item["sentiment_score"] = data["score"]
             item["sentiment_label"] = data["label"]
+            item["sentiment_summary"] = data["summary"]
         except SoftTimeLimitExceeded:
             # SoftTimeLimitExceeded IS an Exception; do NOT swallow it, or the
             # 180s soft limit is lost and the task grinds to the 210s hard

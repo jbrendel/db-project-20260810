@@ -15,7 +15,7 @@ class ContentItemSerializer(serializers.ModelSerializer):
         model = ContentItem
         fields = ["title", "url", "source", "published_at", "is_undated",
                   "snippet", "display_order", "sentiment_score",
-                  "sentiment_label"]
+                  "sentiment_label", "sentiment_summary"]
 
 
 class CategorySerializer(serializers.ModelSerializer):

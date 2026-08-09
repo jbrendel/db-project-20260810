@@ -158,14 +158,21 @@ def parse_sentiment(content):
     rather than raising. Only a non-JSON body fails (via `_load`).
     """
     data = _load(content)
+    unknown = {"score": None, "label": None, "summary": None}
     if not isinstance(data, dict):  # valid JSON but not an object -> unknown
-        return {"score": None, "label": None}
+        return unknown
     raw = data.get("score")
     # bool is an int subclass in Python; exclude it explicitly.
     if isinstance(raw, bool) or not isinstance(raw, (int, float)):
-        return {"score": None, "label": None}
+        return unknown
     score = max(-1.0, min(1.0, float(raw)))
     label = data.get("label")
     if label not in ("positive", "neutral", "negative"):
         label = _derive_sentiment_label(score)
-    return {"score": score, "label": label}
+    summary = data.get("summary")
+    if isinstance(summary, str):
+        summary = summary.strip()[
+            : int(os.environ.get("SENTIMENT_SUMMARY_MAX_CHARS", "400"))] or None
+    else:
+        summary = None
+    return {"score": score, "label": label, "summary": summary}

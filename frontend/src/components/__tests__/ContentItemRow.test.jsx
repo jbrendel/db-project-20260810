@@ -56,3 +56,17 @@ test("shows a muted marker when sentiment is unknown", () => {
   );
   expect(screen.getByLabelText(/sentiment unknown/i)).toBeInTheDocument();
 });
+
+test("prefers the sentiment summary over the raw snippet", () => {
+  render(
+    <ContentItemRow
+      item={{ title: "H", url: "https://n.com/a", source: "n.com",
+              is_undated: true, snippet: "Positive-sounding headline text",
+              sentiment_score: -0.6, sentiment_label: "negative",
+              sentiment_summary: "Commenters are angry despite the title." }}
+    />,
+  );
+  expect(screen.getByText(/commenters are angry/i)).toBeInTheDocument();
+  expect(screen.queryByText(/positive-sounding headline/i))
+    .not.toBeInTheDocument();
+});

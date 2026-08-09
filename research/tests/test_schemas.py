@@ -195,5 +195,23 @@ def test_parse_sentiment_non_json_raises():
 def test_parse_sentiment_non_object_json_is_unknown():
     # Valid JSON that is not an object (e.g. a bare number/array) -> unknown,
     # not an AttributeError.
-    assert parse_sentiment("5") == {"score": None, "label": None}
-    assert parse_sentiment("[1, 2]") == {"score": None, "label": None}
+    unknown = {"score": None, "label": None, "summary": None}
+    assert parse_sentiment("5") == unknown
+    assert parse_sentiment("[1, 2]") == unknown
+
+
+def test_parse_sentiment_summary():
+    d = parse_sentiment('{"score": -0.6, "label": "negative",'
+                        '"summary": "Commenters are angry despite the title."}')
+    assert d["summary"] == "Commenters are angry despite the title."
+
+
+def test_parse_sentiment_summary_bounded(monkeypatch):
+    monkeypatch.setenv("SENTIMENT_SUMMARY_MAX_CHARS", "4")
+    d = parse_sentiment('{"score": 0.1, "summary": "abcdefgh"}')
+    assert d["summary"] == "abcd"
+
+
+def test_parse_sentiment_missing_summary_is_none():
+    d = parse_sentiment('{"score": 0.5, "label": "positive"}')
+    assert d["summary"] is None

@@ -111,7 +111,8 @@ def _run_category_body(run_id, generation, category_key):
                 source=i["source"], published_at=i["published_at"],
                 snippet=i["snippet"], display_order=n,
                 sentiment_score=i["sentiment_score"],
-                sentiment_label=i["sentiment_label"])
+                sentiment_label=i["sentiment_label"],
+                sentiment_summary=i["sentiment_summary"])
             for n, i in enumerate(ordered)])
         cat.summary = result["summary"]
         cat.status = "green" if ordered else "yellow"
