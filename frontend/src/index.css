@@ -437,6 +437,22 @@ button.primary {
   margin-bottom: 8px;
 }
 
+.sentiment-cats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin-bottom: 10px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.sentiment-cat {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
 .sentiment-note {
   font-size: 0.8rem;
   margin: 8px 0 0;
@@ -470,21 +486,6 @@ button.primary {
 }
 .sentiment-unknown {
   color: var(--muted);
-}
-
-.sentiment-modes {
-  display: flex;
-  gap: 16px;
-  margin-bottom: 8px;
-  font-size: 0.85rem;
-  color: var(--muted);
-}
-
-.sentiment-mode {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  cursor: pointer;
 }
 
 .sentiment-tip {

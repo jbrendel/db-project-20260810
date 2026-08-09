@@ -78,15 +78,13 @@ export function RunView() {
     (c) => c.status === "green" || c.status === "yellow",
   ).length;
 
-  // Dated + scored items feed the "Individual items" scatter mode of the graph.
-  // Tag each with its category label so a scatter dot can show its source.
-  const scoredItems = categories
-    .flatMap((c) =>
-      (c.items || []).map((i) => ({
-        ...i, category: CATEGORY_LABELS[c.key] || c.key,
-      })))
-    .filter((i) => i.published_at && i.sentiment_score !== null &&
-                   i.sentiment_score !== undefined);
+  // Every item, tagged with its category label. The graph filters/aggregates
+  // client-side so category checkboxes can re-scope the dots AND the average
+  // line to just the selected categories.
+  const graphItems = categories.flatMap((c) =>
+    (c.items || []).map((i) => ({
+      ...i, category: CATEGORY_LABELS[c.key] || c.key,
+    })));
 
   return (
     <div className="page">
@@ -139,11 +137,7 @@ export function RunView() {
       ) : (
         <>
           {(run.sentiment_summary?.scored_count ?? 0) > 0 && (
-            <SentimentGraph
-              timeline={run.sentiment_timeline}
-              summary={run.sentiment_summary}
-              items={scoredItems}
-            />
+            <SentimentGraph items={graphItems} />
           )}
           <nav className="category-index" aria-label="Categories">
             {run.categories.map((c) => (
