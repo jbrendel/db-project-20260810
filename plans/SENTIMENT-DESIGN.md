@@ -123,8 +123,9 @@ absent), so the window matches what was searched.
   - headline: `sentiment_summary.overall_avg` as a label + value;
   - a responsive Recharts `LineChart` of `avg_score` by `month`, y fixed to
     [-1, 1], a reference line at 0, a tooltip (month / average / item count),
-    `accessibilityLayer` enabled, colour keyed to sign, the line connecting
-    across null months with dots on months that have data;
+    `accessibilityLayer` enabled, a single-series line in a fixed accent colour
+    connecting across null months with dots on months that have data (the
+    per-item pills, not the line, carry the sign-keyed colour);
   - when fewer than 2 dated+scored points exist (e.g. all scored items are
     undated), an inline empty line ("Not enough dated, scored items to chart a
     trend yet") REPLACES the chart but the headline + notes still show, so
