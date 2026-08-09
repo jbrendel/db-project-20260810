@@ -1,10 +1,14 @@
 """Pure per-category research (no DB): planner -> search -> curator loop."""
+import logging
 import os
+from celery.exceptions import SoftTimeLimitExceeded
 from research.llm import call_llm
 from research.tavily import tavily_search
 from research.exclusion import is_excluded
 from research.urls_util import canonicalize_url_for_dedupe
 from research import schemas
+
+_log = logging.getLogger("drumbeat")
 
 # What each category means as THIRD-PARTY coverage about the company. The
 # planner must target independent sources, not the company's own channels —
@@ -128,6 +132,49 @@ def _summarize(company, category_key, items, run_id=None):
     return schemas.parse_category_summary(out["content"])
 
 
+def _sentiment_prompt(company, item):
+    snip = int(os.environ.get("MAX_SNIPPET_CHARS", "300"))
+    return (
+        f'Rate the sentiment toward "{company}" expressed by this item. '
+        'Return JSON {"score": <number from -1 (very negative) to 1 (very '
+        'positive)>, "label": "positive"|"neutral"|"negative"}.\n'
+        f'Title: {item["title"]}\nSnippet: {item["snippet"][:snip]}')
+
+
+def score_sentiments(company, items, run_id=None, category_key=None):
+    """Attach sentiment_score/label to each item (best-effort, non-fatal).
+
+    One LLM call per item, bounded by SENTIMENT_MAX_ITEMS. A per-item failure or
+    a disabled feature leaves that item's sentiment None; it never raises and
+    never affects category status (§5.4).
+    """
+    enabled = os.environ.get("SENTIMENT_ENABLED", "1") != "0"
+    cap = int(os.environ.get("SENTIMENT_MAX_ITEMS", "10"))
+    for idx, item in enumerate(items):
+        item["sentiment_score"] = None
+        item["sentiment_label"] = None
+        if not enabled or idx >= cap:
+            continue
+        try:
+            out = call_llm(
+                "SENTIMENT",
+                [{"role": "user", "content": _sentiment_prompt(company, item)}],
+                json_object=True, run_id=run_id, category_key=category_key)
+            data = schemas.parse_sentiment(out["content"])
+            item["sentiment_score"] = data["score"]
+            item["sentiment_label"] = data["label"]
+        except SoftTimeLimitExceeded:
+            # SoftTimeLimitExceeded IS an Exception; do NOT swallow it, or the
+            # 180s soft limit is lost and the task grinds to the 210s hard
+            # SIGKILL (stuck-blue). Let it propagate to the subtask boundary,
+            # which marks the category red cleanly (§5.4/§5.5).
+            raise
+        except Exception as exc:  # non-fatal: unknown sentiment, keep the item
+            _log.warning("sentiment scoring failed for %s: %s",
+                         item.get("url"), exc)
+    return items
+
+
 def research_category(company, category_key, lookback_months, exclusion,
                       run_id=None):
     """Return {'items': [...], 'summary': str|None} for one category."""
@@ -139,6 +186,7 @@ def research_category(company, category_key, lookback_months, exclusion,
                        lookback_months, exclusion, run_id=run_id)
     max_items = int(os.environ.get("MAX_ITEMS_PER_CATEGORY", "20"))
     items = accepted[:max_items]
+    score_sentiments(company, items, run_id=run_id, category_key=category_key)
     summary = _summarize(company, category_key, items,
                          run_id=run_id) if items else None
     return {"items": items, "summary": summary}

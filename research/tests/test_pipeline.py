@@ -1,3 +1,4 @@
+import pytest
 from unittest.mock import patch
 from research import pipeline
 from research.exclusion import ExclusionSet
@@ -8,6 +9,7 @@ def _es():
 
 
 def test_pipeline_filters_own_domain_and_summarizes(monkeypatch):
+    monkeypatch.setenv("SENTIMENT_ENABLED", "0")
     monkeypatch.setenv("MAX_ITEMS_PER_CATEGORY", "10")
     monkeypatch.setenv("CURATOR_MAX_ITERATIONS", "1")
     search_items = [
@@ -34,6 +36,7 @@ def test_pipeline_filters_own_domain_and_summarizes(monkeypatch):
 
 
 def test_pipeline_empty_yields_no_summary(monkeypatch):
+    monkeypatch.setenv("SENTIMENT_ENABLED", "0")
     monkeypatch.setenv("CURATOR_MAX_ITERATIONS", "1")
     planner_out = {"content": '{"queries": ["acme news"]}',
                    "tool_calls": [], "usage": None}
@@ -77,3 +80,58 @@ def test_planner_prompt_targets_third_party_and_excludes_own_domain():
     # LLM log correlation now flows through (was missing before).
     assert captured["kw"]["run_id"] == 7
     assert captured["kw"]["category_key"] == "blog_posts"
+
+
+def test_score_sentiments_attaches(monkeypatch):
+    monkeypatch.setenv("SENTIMENT_ENABLED", "1")
+    items = [{"title": "t", "url": "https://n.com/a", "source": "n.com",
+              "published_at": None, "snippet": "s"}]
+    out = {"content": '{"score": 0.6, "label": "positive"}',
+           "tool_calls": [], "usage": None}
+    with patch.object(pipeline, "call_llm", return_value=out):
+        pipeline.score_sentiments("Acme", items, run_id=1, category_key="news")
+    assert items[0]["sentiment_score"] == 0.6
+    assert items[0]["sentiment_label"] == "positive"
+
+
+def test_score_sentiments_failure_is_nonfatal(monkeypatch):
+    monkeypatch.setenv("SENTIMENT_ENABLED", "1")
+    items = [{"title": "t", "url": "u", "source": "s",
+              "published_at": None, "snippet": "s"}]
+    with patch.object(pipeline, "call_llm", side_effect=RuntimeError("boom")):
+        pipeline.score_sentiments("Acme", items)  # must NOT raise
+    assert items[0]["sentiment_score"] is None
+    assert items[0]["sentiment_label"] is None
+
+
+def test_score_sentiments_reraises_soft_time_limit(monkeypatch):
+    from celery.exceptions import SoftTimeLimitExceeded
+    monkeypatch.setenv("SENTIMENT_ENABLED", "1")
+    items = [{"title": "t", "url": "u", "source": "s",
+              "published_at": None, "snippet": "s"}]
+    with patch.object(pipeline, "call_llm", side_effect=SoftTimeLimitExceeded()):
+        with pytest.raises(SoftTimeLimitExceeded):  # must NOT be swallowed
+            pipeline.score_sentiments("Acme", items)
+
+
+def test_score_sentiments_disabled_makes_no_calls(monkeypatch):
+    monkeypatch.setenv("SENTIMENT_ENABLED", "0")
+    items = [{"title": "t", "url": "u", "source": "s",
+              "published_at": None, "snippet": "s"}]
+    with patch.object(pipeline, "call_llm") as llm:
+        pipeline.score_sentiments("Acme", items)
+    llm.assert_not_called()
+    assert items[0]["sentiment_score"] is None
+
+
+def test_score_sentiments_respects_cap(monkeypatch):
+    monkeypatch.setenv("SENTIMENT_ENABLED", "1")
+    monkeypatch.setenv("SENTIMENT_MAX_ITEMS", "1")
+    items = [{"title": f"t{i}", "url": f"u{i}", "source": "s",
+              "published_at": None, "snippet": "s"} for i in range(3)]
+    out = {"content": '{"score": 0.2, "label": "neutral"}',
+           "tool_calls": [], "usage": None}
+    with patch.object(pipeline, "call_llm", return_value=out) as llm:
+        pipeline.score_sentiments("Acme", items)
+    assert llm.call_count == 1                 # only the first item scored
+    assert items[1]["sentiment_score"] is None  # beyond the cap -> unknown
