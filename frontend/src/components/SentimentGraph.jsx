@@ -29,7 +29,8 @@ export function SentimentGraph({ timeline, summary }) {
             <ReferenceLine y={0} stroke="#888" />
             <Tooltip
               formatter={(v, _n, item) => [
-                `${v} (${item?.payload?.item_count ?? 0} items)`,
+                v === null ? "no data"
+                  : `${v} (${item?.payload?.item_count ?? 0} items)`,
                 "avg sentiment"]} />
             <Line type="monotone" dataKey="avg_score" stroke="#2f5bea"
                   connectNulls dot={{ r: 3 }} isAnimationActive={false} />
