@@ -110,3 +110,31 @@ def parse_identity(content):
         "owned_profile_urls": profiles, "owned_social_handles": handles,
         "confidence": _normalize_confidence(data.get("confidence")),
     }
+
+
+def _derive_sentiment_label(score):
+    if score >= 0.15:
+        return "positive"
+    if score <= -0.15:
+        return "negative"
+    return "neutral"
+
+
+def parse_sentiment(content):
+    """Tolerant sentiment parse -> {score in [-1,1] or None, label or None}.
+
+    Non-fatal upstream (§5.4): an unusable score yields unknown sentiment
+    rather than raising. Only a non-JSON body fails (via `_load`).
+    """
+    data = _load(content)
+    if not isinstance(data, dict):  # valid JSON but not an object -> unknown
+        return {"score": None, "label": None}
+    raw = data.get("score")
+    # bool is an int subclass in Python; exclude it explicitly.
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        return {"score": None, "label": None}
+    score = max(-1.0, min(1.0, float(raw)))
+    label = data.get("label")
+    if label not in ("positive", "neutral", "negative"):
+        label = _derive_sentiment_label(score)
+    return {"score": score, "label": label}

@@ -1,7 +1,8 @@
 import pytest
 from research.schemas import (parse_query_planner, parse_report,
                               parse_category_summary, parse_curator,
-                              parse_identity, MalformedLLMOutput)
+                              parse_identity, parse_sentiment,
+                              MalformedLLMOutput)
 
 
 def test_parse_query_planner_ok():
@@ -136,3 +137,46 @@ def test_parse_identity_matched_true_but_null_domain_is_no_match():
 def test_parse_identity_non_json_still_fails():
     with pytest.raises(MalformedLLMOutput):
         parse_identity("not json at all")
+
+
+def test_parse_sentiment_ok():
+    d = parse_sentiment('{"score": 0.5, "label": "positive"}')
+    assert d["score"] == 0.5 and d["label"] == "positive"
+
+
+def test_parse_sentiment_clamps_score():
+    assert parse_sentiment('{"score": 2.5, "label": "positive"}')["score"] == 1.0
+    assert parse_sentiment('{"score": -9, "label": "negative"}')["score"] == -1.0
+
+
+def test_parse_sentiment_derives_label_from_score():
+    assert parse_sentiment('{"score": 0.4}')["label"] == "positive"
+    assert parse_sentiment('{"score": -0.4}')["label"] == "negative"
+    assert parse_sentiment('{"score": 0.0}')["label"] == "neutral"
+
+
+def test_parse_sentiment_bad_label_is_derived():
+    assert parse_sentiment('{"score": 0.4, "label": "great"}')["label"] \
+        == "positive"
+
+
+def test_parse_sentiment_unusable_score_is_unknown():
+    d = parse_sentiment('{"score": "n/a", "label": "positive"}')
+    assert d["score"] is None and d["label"] is None
+
+
+def test_parse_sentiment_bool_score_is_unknown():
+    d = parse_sentiment('{"score": true, "label": "positive"}')
+    assert d["score"] is None and d["label"] is None
+
+
+def test_parse_sentiment_non_json_raises():
+    with pytest.raises(MalformedLLMOutput):
+        parse_sentiment("not json")
+
+
+def test_parse_sentiment_non_object_json_is_unknown():
+    # Valid JSON that is not an object (e.g. a bare number/array) -> unknown,
+    # not an AttributeError.
+    assert parse_sentiment("5") == {"score": None, "label": None}
+    assert parse_sentiment("[1, 2]") == {"score": None, "label": None}
