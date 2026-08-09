@@ -54,6 +54,14 @@ def test_curator_prompt_caps_candidates(monkeypatch):
     assert prompt.count("https://n.com/") == 2  # only 2 candidate lines
 
 
+def test_curator_prompt_enforces_aboutness():
+    prompt = pipeline._curator_prompt("Acme", "news", [])
+    assert "PRIMARY SUBJECT" in prompt
+    assert "one of many" in prompt          # listicle / round-up rejection
+    assert "AUTHORED" in prompt             # company-authored-report rejection
+    assert "different topic" in prompt
+
+
 def test_summary_prompt_bounds_snippet(monkeypatch):
     monkeypatch.setenv("MAX_SNIPPET_CHARS", "3")
     items = [{"title": "T", "url": "u", "source": "s",

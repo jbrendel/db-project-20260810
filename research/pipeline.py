@@ -78,14 +78,26 @@ def _curator_prompt(company, category_key, pool):
              for i in pool[:cap]]
     body = "\n".join(lines)
     return (
-        f'Company: "{company}". Category: {category_key}. From the candidate '
-        "URLs below, keep only genuine third-party content about the company; "
-        "drop the company's own channels, aggregators, review/ecommerce pages, "
-        "and off-topic results; dedupe. You MAY request one more search by "
-        'returning a tool_call {"query": "..."}. Return ONLY compact JSON of '
-        'the accepted URLs, e.g. {"accepted": [{"url": "https://..."}], '
-        '"tool_call": null, "done": true}. Do NOT echo rejected or duplicate '
-        f'URLs.\n{body}')
+        f'Company: "{company}". Category: {category_key}.\n'
+        "Keep ONLY items genuinely ABOUT this company — where the company (its "
+        "business, products, people, actions, or reputation) is the PRIMARY "
+        "SUBJECT of the piece.\n"
+        "KEEP: news, analysis, reviews, or commentary whose main subject is the "
+        "company.\n"
+        "DROP, even when the company's name appears in the title or text:\n"
+        "- items where the company is only mentioned in passing, or is one of "
+        "many named (listicles, market round-ups, \"best X of 2026\");\n"
+        "- items the company merely AUTHORED, published, sponsored, funded, or "
+        "is quoted in, whose actual subject is a different topic (e.g. a "
+        "company-authored report about an industry trend is ABOUT that trend, "
+        "NOT about the company);\n"
+        "- the company's own channels, aggregators, review/ecommerce pages, and "
+        "otherwise off-topic results.\n"
+        "Dedupe. You MAY request one more search via a "
+        'tool_call {"query": "..."}. Return ONLY compact JSON of accepted '
+        'URLs, e.g. {"accepted": [{"url": "https://..."}], "tool_call": null, '
+        '"done": true}. Do NOT echo rejected or duplicate URLs.\n'
+        f"{body}")
 
 
 def _curate(company, category_key, pool, seen, lookback_months, exclusion,
