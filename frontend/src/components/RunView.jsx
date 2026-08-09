@@ -4,6 +4,7 @@ import * as api from "../api";
 import { usePolling } from "../usePolling.js";
 import { StatusChip } from "./StatusChip.jsx";
 import { CategorySection } from "./CategorySection.jsx";
+import { SentimentGraph } from "./SentimentGraph.jsx";
 
 const CATEGORY_LABELS = {
   news: "News articles",
@@ -127,6 +128,12 @@ export function RunView() {
         </div>
       ) : (
         <>
+          {(run.sentiment_summary?.scored_count ?? 0) > 0 && (
+            <SentimentGraph
+              timeline={run.sentiment_timeline}
+              summary={run.sentiment_summary}
+            />
+          )}
           <nav className="category-index" aria-label="Categories">
             {run.categories.map((c) => (
               <a key={c.key} href={`#cat-${c.key}`}>

@@ -119,3 +119,39 @@ test("hides overview until it exists and renders categories", async () => {
   // "News articles" appears in both the index nav and the section head.
   expect(screen.getAllByText("News articles").length).toBeGreaterThan(0);
 });
+
+test("shows the sentiment graph only when there is scored data", async () => {
+  vi.spyOn(api, "getRun").mockResolvedValue({
+    id: 11, input_text: "Acme", status: "green",
+    started_at: "2026-01-01T00:00:00Z", ended_at: "2026-01-02T00:00:00Z",
+    executive_overview: "ok", total_item_count: 1, warnings: [],
+    categories: [{ key: "news", status: "green", item_count: 1, items: [] }],
+    sentiment_summary: { overall_avg: 0.3, scored_count: 2,
+                         undated_scored_count: 0, unknown_count: 0 },
+    sentiment_timeline: [
+      { month: "2026-01", avg_score: 0.3, item_count: 1 },
+      { month: "2026-02", avg_score: 0.3, item_count: 1 }],
+  });
+  renderAt(11);
+  await waitFor(() =>
+    expect(screen.getByText(/overall sentiment/i)).toBeInTheDocument());
+});
+
+test("hides the sentiment graph when nothing is scored", async () => {
+  vi.spyOn(api, "getRun").mockResolvedValue({
+    id: 12, input_text: "Acme", status: "green",
+    started_at: "2026-01-01T00:00:00Z", ended_at: "2026-01-02T00:00:00Z",
+    executive_overview: "ok", total_item_count: 1, warnings: [],
+    categories: [{ key: "news", status: "green", item_count: 1, items: [] }],
+    sentiment_summary: { overall_avg: null, scored_count: 0,
+                         undated_scored_count: 0, unknown_count: 0 },
+    sentiment_timeline: [{ month: "2026-01", avg_score: null, item_count: 0 }],
+  });
+  renderAt(12);
+  // Wait on an unambiguous element ("News articles" appears in BOTH the index
+  // nav and the section head, so getByText would match multiple).
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: /refresh/i }))
+      .toBeInTheDocument());
+  expect(screen.queryByText(/overall sentiment/i)).not.toBeInTheDocument();
+});

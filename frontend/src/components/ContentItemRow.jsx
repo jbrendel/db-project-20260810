@@ -13,6 +13,23 @@ function isSafeHttpUrl(url) {
   }
 }
 
+function SentimentPill({ score, label }) {
+  if (score === null || score === undefined || !label) {
+    return (
+      <span className="sentiment-pill sentiment-unknown"
+            aria-label="Sentiment unknown">
+        —
+      </span>
+    );
+  }
+  const shown = score > 0 ? `+${score}` : `${score}`;
+  return (
+    <span className={`sentiment-pill sentiment-${label}`}>
+      {label} {shown}
+    </span>
+  );
+}
+
 export function ContentItemRow({ item }) {
   const safe = isSafeHttpUrl(item.url);
   return (
@@ -33,6 +50,8 @@ export function ContentItemRow({ item }) {
         ) : (
           <span className="item-date">{formatDate(item.published_at)}</span>
         )}
+        <SentimentPill score={item.sentiment_score}
+                       label={item.sentiment_label} />
       </div>
       {item.snippet && <p className="item-snippet">{item.snippet}</p>}
     </li>

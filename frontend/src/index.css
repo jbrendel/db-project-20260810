@@ -390,6 +390,8 @@ button.primary {
 
 .item-meta {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 10px;
   font-size: 0.8rem;
   color: var(--muted);
@@ -417,5 +419,55 @@ button.primary {
   border-radius: 8px;
   padding: 32px;
   text-align: center;
+  color: var(--muted);
+}
+
+/* --- Sentiment graph + pill --- */
+.sentiment-graph {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  margin: 16px 0;
+}
+
+.sentiment-headline {
+  font-size: 0.9rem;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.sentiment-note {
+  font-size: 0.8rem;
+  margin: 8px 0 0;
+}
+
+.sentiment-empty-line {
+  font-size: 0.9rem;
+  margin: 8px 0;
+}
+
+.sentiment-pill {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.sentiment-positive {
+  color: var(--green);
+  background: #eaf6ee;
+}
+.sentiment-neutral {
+  color: var(--muted);
+  background: #eef1f5;
+}
+.sentiment-negative {
+  color: var(--red);
+  background: #fbecea;
+}
+.sentiment-unknown {
   color: var(--muted);
 }

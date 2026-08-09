@@ -33,3 +33,26 @@ test("unsafe javascript: url renders title as text, not a link", () => {
   expect(screen.queryByRole("link")).not.toBeInTheDocument();
   expect(screen.getByText("Sketchy")).toBeInTheDocument();
 });
+
+test("shows a sentiment pill for a scored item", () => {
+  render(
+    <ContentItemRow
+      item={{ title: "H", url: "https://n.com/a", source: "n.com",
+              is_undated: true, snippet: "s", sentiment_score: 0.6,
+              sentiment_label: "positive" }}
+    />,
+  );
+  expect(screen.getByText(/positive/i)).toBeInTheDocument();
+  expect(screen.getByText(/\+0\.6/)).toBeInTheDocument();
+});
+
+test("shows a muted marker when sentiment is unknown", () => {
+  render(
+    <ContentItemRow
+      item={{ title: "H", url: "https://n.com/a", source: "n.com",
+              is_undated: true, snippet: "s", sentiment_score: null,
+              sentiment_label: null }}
+    />,
+  );
+  expect(screen.getByLabelText(/sentiment unknown/i)).toBeInTheDocument();
+});
