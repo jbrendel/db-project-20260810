@@ -69,3 +69,26 @@ def test_rfc2822_date_from_tavily_is_dated(monkeypatch):
         items = tavily.tavily_search("q", 36, 10)
     assert items[0]["published_at"] == \
         datetime(2026, 2, 12, 21, 57, 14, tzinfo=timezone.utc)
+
+
+def test_url_date_extraction():
+    assert tavily._url_date("https://nypost.com/2026/02/18/business/x") == \
+        datetime(2026, 2, 18, tzinfo=timezone.utc)
+    assert tavily._url_date("https://forbes.com/sites/x/2026/06/09/apple") == \
+        datetime(2026, 6, 9, tzinfo=timezone.utc)
+    assert tavily._url_date("https://site.com/2026/03/story") == \
+        datetime(2026, 3, 1, tzinfo=timezone.utc)  # month only -> day 1
+    # An id-like number is not a date (month out of range) -> None.
+    assert tavily._url_date("https://theverge.com/tech/944110/wwdc") is None
+    assert tavily._url_date("https://x.com/2026/13/bad") is None  # bad month
+    assert tavily._url_date("https://x.com/about") is None
+
+
+def test_url_date_used_when_tavily_date_missing(monkeypatch):
+    raw = {"results": [{"title": "T",
+           "url": "https://n.com/2026/02/18/apple-story", "content": "c"}]}
+    with patch.object(tavily, "_raw_search", return_value=raw), \
+         patch.object(tavily, "_within_window", return_value=True):
+        items = tavily.tavily_search("q", 36, 10)
+    assert items[0]["published_at"] == \
+        datetime(2026, 2, 18, tzinfo=timezone.utc)

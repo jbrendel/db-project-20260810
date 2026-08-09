@@ -1,5 +1,6 @@
 """Tavily search wrapper: the single mock seam for search (Section 9)."""
 import os
+import re
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from research import urls_util
@@ -8,10 +9,36 @@ from research import urls_util
 def _raw_search(query, days, max_results):
     from tavily import TavilyClient  # lazy, per-process
     client = TavilyClient(api_key=os.environ["TAVILY_API_KEY"])
-    # topic="news" is required for Tavily's day-window to apply; see the note
-    # below on the known limitation for non-news categories.
-    return client.search(query=query, max_results=max_results,
-                         days=days, topic="news")
+    # topic="news" is the only topic that returns publish dates. Use an explicit
+    # start/end date window instead of `days`: `days` caps the news index at
+    # ~1 year of depth, whereas start_date/end_date reaches back multiple years
+    # (so a 36-month lookback actually returns older articles).
+    end = datetime.now(timezone.utc).date()
+    start = end - timedelta(days=days)
+    return client.search(query=query, max_results=max_results, topic="news",
+                         start_date=start.isoformat(),
+                         end_date=end.isoformat())
+
+
+# A date embedded in a URL path, e.g. /2026/02/18/ or /2026-02-18 or /2026/02/.
+_URL_DATE_RE = re.compile(r"/(20\d{2})[/-](\d{1,2})(?:[/-](\d{1,2}))?(?=[/?.]|$)")
+
+
+def _url_date(url):
+    """Extract a publish date from a URL path, or None. Conservative: requires
+    a /YYYY/MM(/DD)? shape with a valid month/day (avoids matching id numbers).
+    """
+    m = _URL_DATE_RE.search(url or "")
+    if not m:
+        return None
+    year, month = int(m.group(1)), int(m.group(2))
+    day = int(m.group(3)) if m.group(3) else 1
+    if not (1 <= month <= 12):
+        return None
+    try:
+        return datetime(year, month, day, tzinfo=timezone.utc)
+    except ValueError:  # e.g. day out of range for the month
+        return None
 
 
 def _parse_date(value):
@@ -55,7 +82,9 @@ def tavily_search(query, lookback_months, max_results):
         url = r["url"]
         if not urls_util.is_safe_http_url(url):
             continue  # drop non-http(s) results (javascript:/data:/file: etc.)
-        published = _parse_date(r.get("published_date"))
+        # Prefer Tavily's date; fall back to a date embedded in the URL so the
+        # remaining items still land on the sentiment timeline where possible.
+        published = _parse_date(r.get("published_date")) or _url_date(url)
         if not _within_window(published, lookback_months):
             continue  # drop dated-but-out-of-window results
         items.append({
