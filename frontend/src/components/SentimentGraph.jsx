@@ -32,7 +32,8 @@ function ChartTooltip({ active, payload }) {
       <div className="sentiment-tip">
         <div className="tip-title">{p.title}</div>
         <div className="tip-meta">
-          {p.source} · {new Date(p.x).toLocaleDateString()} · {fmtScore(p.y)}
+          {p.category ? `${p.category} · ` : ""}{p.source} ·{" "}
+          {new Date(p.x).toLocaleDateString()} · {fmtScore(p.y)}
         </div>
         {p.snippet && <div className="tip-snippet">{p.snippet}</div>}
         <div className="tip-hint">Click the dot to open the article.</div>
@@ -78,7 +79,7 @@ export function SentimentGraph({ timeline, summary, items }) {
   const scatterData = (items || []).map((i) => ({
     x: new Date(i.published_at).getTime(), y: i.sentiment_score,
     sentiment_label: i.sentiment_label, title: i.title, source: i.source,
-    snippet: i.snippet, url: i.url,
+    snippet: i.snippet, url: i.url, category: i.category,
   }));
 
   const overall = summary?.overall_avg;

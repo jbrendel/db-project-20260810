@@ -189,6 +189,19 @@ def test_report_prompt_enforces_item_cap(monkeypatch):
     assert prompt.count("::") == 2  # only 2 item lines survive the cap
 
 
+def test_report_prompt_includes_sentiment_and_pos_neg_instruction():
+    run = Run.objects.create(input_text="Acme", input_kind="name")
+    cat = Category.objects.create(run=run, key="news")
+    items = [("news", ContentItem(category=cat, title="Great launch",
+             url="u", canonical_url="u", source="techcrunch.com", snippet="s",
+             sentiment_score=0.7, sentiment_label="positive"))]
+    prompt = tasks._report_prompt(run, items)
+    # Instruction asks for the positive/negative source+theme breakdown.
+    assert "POSITIVE coverage" in prompt and "NEGATIVE coverage" in prompt
+    # The item line carries its sentiment label and source.
+    assert "(positive; techcrunch.com)" in prompt
+
+
 def test_stale_task_after_delete_is_superseded():
     run = Run.objects.create(input_text="Acme", input_kind="name")
     Category.objects.create(run=run, key="news", status="pending")

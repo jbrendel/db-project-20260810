@@ -79,8 +79,12 @@ export function RunView() {
   ).length;
 
   // Dated + scored items feed the "Individual items" scatter mode of the graph.
+  // Tag each with its category label so a scatter dot can show its source.
   const scoredItems = categories
-    .flatMap((c) => c.items || [])
+    .flatMap((c) =>
+      (c.items || []).map((i) => ({
+        ...i, category: CATEGORY_LABELS[c.key] || c.key,
+      })))
     .filter((i) => i.published_at && i.sentiment_score !== null &&
                    i.sentiment_score !== undefined);
 

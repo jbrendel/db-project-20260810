@@ -209,15 +209,27 @@ def _finalize_body(run_id, generation):
 
 
 def _report_prompt(run, kept_items):
-    """kept_items is a list of (category_key, ContentItem) surviving dedup."""
+    """kept_items is a list of (category_key, ContentItem) surviving dedup.
+
+    Each line carries the item's sentiment label and source so the overview can
+    summarise where positive vs negative coverage comes from and what it is
+    about.
+    """
     cap = int(os.environ.get("REPORT_MAX_ITEMS_TOTAL", "60"))
     snip = int(os.environ.get("REPORT_MAX_ITEM_SNIPPET_CHARS", "200"))
-    lines = [f"[{key}] {item.title} :: {item.snippet[:snip]}"
-             for key, item in kept_items[:cap]]
+    lines = [
+        f"[{key}] ({item.sentiment_label or 'unrated'}; {item.source}) "
+        f"{item.title} :: {item.snippet[:snip]}"
+        for key, item in kept_items[:cap]]
     body = "\n".join(lines)
-    return (f'Write a concise executive overview of "{run.input_text}" from '
-            f'these findings. Return JSON {{"executive_overview": "..."}}.\n'
-            f'{body}')
+    return (
+        f'Write a concise executive overview of "{run.input_text}" from the '
+        "findings below. Each is tagged with [category] and (sentiment; "
+        "source). In the overview, include a short summary of the POSITIVE "
+        "coverage — which sources/outlets it comes from and what themes it is "
+        "about — and, separately, the NEGATIVE coverage (its sources and "
+        'themes). Return JSON {"executive_overview": "..."}.\n'
+        f"{body}")
 
 
 @shared_task
