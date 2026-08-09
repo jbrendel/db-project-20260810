@@ -6,18 +6,38 @@ from email.utils import parsedate_to_datetime
 from research import urls_util
 
 
-def _raw_search(query, days, max_results):
+_RECENT_WINDOW_DAYS = 365  # "most recent 12 months" bucket boundary
+
+
+def _raw_search(query, start_days, end_days, max_results):
+    """One Tavily news search over [today-start_days, today-end_days].
+
+    topic="news" is the only topic that returns publish dates, and an explicit
+    start/end window (not `days`) is what actually reaches back years.
+    """
     from tavily import TavilyClient  # lazy, per-process
     client = TavilyClient(api_key=os.environ["TAVILY_API_KEY"])
-    # topic="news" is the only topic that returns publish dates. Use an explicit
-    # start/end date window instead of `days`: `days` caps the news index at
-    # ~1 year of depth, whereas start_date/end_date reaches back multiple years
-    # (so a 36-month lookback actually returns older articles).
-    end = datetime.now(timezone.utc).date()
-    start = end - timedelta(days=days)
+    today = datetime.now(timezone.utc).date()
+    start = today - timedelta(days=start_days)
+    end = today - timedelta(days=end_days)
     return client.search(query=query, max_results=max_results, topic="news",
                          start_date=start.isoformat(),
                          end_date=end.isoformat())
+
+
+def _time_buckets(lookback_months):
+    """Split the lookback into search windows (start_days, end_days from today).
+
+    Tavily ranks news by relevance, which crowds out older articles when one
+    wide window is searched. To surface older coverage we search the recent 12
+    months as one bucket and, if the lookback reaches further back, the whole
+    remaining range (12 months .. lookback) as a second bucket. So <=12-month
+    lookbacks make ONE search; longer ones make TWO (≈2x cost, not per-year).
+    """
+    total_days = lookback_months * 30
+    if total_days <= _RECENT_WINDOW_DAYS:
+        return [(total_days, 0)]
+    return [(_RECENT_WINDOW_DAYS, 0), (total_days, _RECENT_WINDOW_DAYS)]
 
 
 # A date embedded in a URL path, e.g. /2026/02/18/ or /2026-02-18 or /2026/02/.
@@ -73,25 +93,34 @@ def _within_window(published_at, lookback_months):
 
 
 def tavily_search(query, lookback_months, max_results):
-    """Search, map, and post-filter by window (§9 layer 2). Undated kept."""
-    days = lookback_months * 30
+    """Search each time bucket, map, and post-filter by window (§9 layer 2).
+
+    A long lookback searches a recent-12-months bucket AND an older bucket so
+    Tavily's recency-ranking does not crowd out older articles. Results are
+    deduped by canonical URL across buckets. Undated items are kept.
+    """
     max_snippet = int(os.environ.get("MAX_SNIPPET_CHARS", "300"))
-    raw = _raw_search(query, days, max_results)
-    items = []
-    for r in raw["results"]:
-        url = r["url"]
-        if not urls_util.is_safe_http_url(url):
-            continue  # drop non-http(s) results (javascript:/data:/file: etc.)
-        # Prefer Tavily's date; fall back to a date embedded in the URL so the
-        # remaining items still land on the sentiment timeline where possible.
-        published = _parse_date(r.get("published_date")) or _url_date(url)
-        if not _within_window(published, lookback_months):
-            continue  # drop dated-but-out-of-window results
-        items.append({
-            "title": r["title"],
-            "url": url,
-            "source": urls_util.registrable_domain(url) or "",
-            "published_at": published,
-            "snippet": (r.get("content") or "")[:max_snippet],
-        })
+    items, seen = [], set()
+    for start_days, end_days in _time_buckets(lookback_months):
+        raw = _raw_search(query, start_days, end_days, max_results)
+        for r in raw["results"]:
+            url = r["url"]
+            if not urls_util.is_safe_http_url(url):
+                continue  # drop non-http(s) (javascript:/data:/file: etc.)
+            key = urls_util.canonicalize_url_for_dedupe(url)
+            if key in seen:
+                continue  # same article surfaced in both buckets
+            # Prefer Tavily's date; fall back to a date embedded in the URL so
+            # the item can still land on the sentiment timeline where possible.
+            published = _parse_date(r.get("published_date")) or _url_date(url)
+            if not _within_window(published, lookback_months):
+                continue  # drop dated-but-out-of-window results
+            seen.add(key)
+            items.append({
+                "title": r["title"],
+                "url": url,
+                "source": urls_util.registrable_domain(url) or "",
+                "published_at": published,
+                "snippet": (r.get("content") or "")[:max_snippet],
+            })
     return items
