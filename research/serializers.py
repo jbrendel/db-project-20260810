@@ -1,5 +1,6 @@
 """DRF serializers and the run-create validator (§11 contract)."""
 import os
+from django.utils import timezone
 from rest_framework import serializers
 from research.models import Run, Category, ContentItem
 from research.categories import (selected_category_keys, DISPLAY_ORDER,
@@ -13,7 +14,8 @@ class ContentItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = ContentItem
         fields = ["title", "url", "source", "published_at", "is_undated",
-                  "snippet", "display_order"]
+                  "snippet", "display_order", "sentiment_score",
+                  "sentiment_label"]
 
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -31,20 +33,74 @@ class CategorySerializer(serializers.ModelSerializer):
         return len(obj.items.all())  # server-computed; frontend never counts
 
 
+def _iter_months(start_ym, end_ym):
+    """Yield (year, month) inclusive from start_ym to end_ym (both (y, m))."""
+    y, m = start_ym
+    while (y, m) <= end_ym:
+        yield y, m
+        m = 1 if m == 12 else m + 1
+        y = y + 1 if m == 1 else y
+
+
+def _window_start(ref, lookback_months):
+    """First (year, month) of a lookback_months window ending in ref's month."""
+    index = ref.year * 12 + (ref.month - 1) - (lookback_months - 1)
+    return index // 12, index % 12 + 1
+
+
 class RunDetailSerializer(serializers.ModelSerializer):
     total_item_count = serializers.SerializerMethodField()
+    sentiment_timeline = serializers.SerializerMethodField()
+    sentiment_summary = serializers.SerializerMethodField()
     categories = CategorySerializer(many=True, read_only=True)
 
     class Meta:
         model = Run
         fields = ["id", "input_text", "input_kind", "status", "started_at",
                   "ended_at", "executive_overview", "error", "warnings",
-                  "total_item_count", "categories"]
+                  "total_item_count", "sentiment_timeline",
+                  "sentiment_summary", "categories"]
 
     def get_total_item_count(self, obj):
         # Sum over the prefetched categories/items so the polled detail path
         # adds no extra queries (§10: counts are server-computed).
         return sum(len(c.items.all()) for c in obj.categories.all())
+
+    def _all_items(self, obj):
+        for cat in obj.categories.all():          # prefetched -> no N+1
+            for item in cat.items.all():
+                yield item
+
+    def get_sentiment_timeline(self, obj):
+        ref = obj.started_at or timezone.now()
+        start_ym = _window_start(ref, obj.lookback_months)
+        buckets = {}
+        for item in self._all_items(obj):
+            if item.published_at is not None and \
+                    item.sentiment_score is not None:
+                key = (item.published_at.year, item.published_at.month)
+                buckets.setdefault(key, []).append(item.sentiment_score)
+        out = []
+        for (y, m) in _iter_months(start_ym, (ref.year, ref.month)):
+            scores = buckets.get((y, m), [])
+            avg = round(sum(scores) / len(scores), 3) if scores else None
+            out.append({"month": f"{y:04d}-{m:02d}", "avg_score": avg,
+                        "item_count": len(scores)})
+        return out
+
+    def get_sentiment_summary(self, obj):
+        scored, undated_scored, unknown = [], 0, 0
+        for item in self._all_items(obj):
+            if item.sentiment_score is None:
+                unknown += 1
+            else:
+                scored.append(item.sentiment_score)
+                if item.published_at is None:
+                    undated_scored += 1
+        overall = round(sum(scored) / len(scored), 3) if scored else None
+        return {"overall_avg": overall, "scored_count": len(scored),
+                "undated_scored_count": undated_scored,
+                "unknown_count": unknown}
 
 
 class RunListSerializer(serializers.ModelSerializer):
