@@ -109,7 +109,9 @@ def _run_category_body(run_id, generation, category_key):
                 category=cat, title=i["title"], url=i["url"],
                 canonical_url=urls_util.canonicalize_url_for_dedupe(i["url"]),
                 source=i["source"], published_at=i["published_at"],
-                snippet=i["snippet"], display_order=n)
+                snippet=i["snippet"], display_order=n,
+                sentiment_score=i["sentiment_score"],
+                sentiment_label=i["sentiment_label"])
             for n, i in enumerate(ordered)])
         cat.summary = result["summary"]
         cat.status = "green" if ordered else "yellow"

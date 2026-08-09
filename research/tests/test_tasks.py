@@ -24,7 +24,8 @@ def test_subtask_error_degrades_to_yellow():
         if key == "podcasts":
             raise RuntimeError("boom")
         return {"items": [{"title": "t", "url": "https://n.com/a",
-                "source": "n.com", "published_at": None, "snippet": "s"}],
+                "source": "n.com", "published_at": None, "snippet": "s",
+                "sentiment_score": None, "sentiment_label": None}],
                 "summary": "sum"}
 
     with patch.object(tasks, "research_category", side_effect=fake_research), \
@@ -198,3 +199,45 @@ def test_stale_task_after_delete_is_superseded():
         tasks.run_category.run(run_id, gen, "news")  # must not raise/recreate
     rc.assert_not_called()
     assert not Run.objects.filter(id=run_id).exists()
+
+
+def test_subtask_persists_sentiment():
+    run = Run.objects.create(input_text="Acme", input_kind="name",
+                             selected_categories=["news"],
+                             started_at=timezone.now())
+    Category.objects.create(run=run, key="news", display_order=0)
+
+    def fake(company, key, months, exclusion, run_id=None):
+        return {"items": [{"title": "t", "url": "https://n.com/a",
+                "source": "n.com", "published_at": None, "snippet": "s",
+                "sentiment_score": 0.5, "sentiment_label": "positive"}],
+                "summary": "s"}
+
+    with patch.object(tasks, "research_category", side_effect=fake):
+        tasks.run_category.run(run.id, run.generation, "news")
+
+    item = ContentItem.objects.get(category__run=run)
+    assert item.sentiment_score == 0.5
+    assert item.sentiment_label == "positive"
+    assert Category.objects.get(run=run, key="news").status == "green"
+
+
+def test_subtask_sentiment_unknown_still_green():
+    # A sentiment failure surfaces as None/None on the item (score_sentiments is
+    # non-fatal); the category must still finish green (§5.4/§8, design §8).
+    run = Run.objects.create(input_text="Acme", input_kind="name",
+                             selected_categories=["news"],
+                             started_at=timezone.now())
+    Category.objects.create(run=run, key="news", display_order=0)
+
+    def fake(company, key, months, exclusion, run_id=None):
+        return {"items": [{"title": "t", "url": "https://n.com/a",
+                "source": "n.com", "published_at": None, "snippet": "s",
+                "sentiment_score": None, "sentiment_label": None}],
+                "summary": "s"}
+
+    with patch.object(tasks, "research_category", side_effect=fake):
+        tasks.run_category.run(run.id, run.generation, "news")
+
+    assert Category.objects.get(run=run, key="news").status == "green"
+    assert ContentItem.objects.get(category__run=run).sentiment_score is None
