@@ -93,7 +93,10 @@ categories/items (no N+1):
   int }]`. Buckets are computed from **dated, scored** items only
   (`published_at` not null AND `sentiment_score` not null). A month with no such
   items carries `avg_score: null`, `item_count: 0`, so the x-axis is continuous
-  and gaps are explicit. Range: from the first day of the month `lookback_months`
+  over the whole window. The chart line CONNECTS across empty months
+  (`connectNulls`) while a dot marks each month that has data, so the trend reads
+  continuously but the dots + tooltip counts keep it honest about which months
+  are real. Range: from the first day of the month `lookback_months`
   before the run's reference date, through the current month.
 - `sentiment_summary`: `{ overall_avg: float|null, scored_count: int,
   undated_scored_count: int, unknown_count: int }`. `overall_avg` is the mean of
@@ -120,7 +123,8 @@ absent), so the window matches what was searched.
   - headline: `sentiment_summary.overall_avg` as a label + value;
   - a responsive Recharts `LineChart` of `avg_score` by `month`, y fixed to
     [-1, 1], a reference line at 0, a tooltip (month / average / item count),
-    `accessibilityLayer` enabled, colour keyed to sign, null months as gaps;
+    `accessibilityLayer` enabled, colour keyed to sign, the line connecting
+    across null months with dots on months that have data;
   - when fewer than 2 dated+scored points exist (e.g. all scored items are
     undated), an inline empty line ("Not enough dated, scored items to chart a
     trend yet") REPLACES the chart but the headline + notes still show, so
@@ -162,7 +166,7 @@ absent), so the window matches what was searched.
 - Subtask persistence: scored items store `sentiment_score`/`sentiment_label`;
   a sentiment failure never marks the category red.
 - Serializer: monthly bucketing over the window (dated+scored only), continuous
-  months with null gaps, undated excluded from the line but counted in
+  months with null-avg empty months, undated excluded from the line but counted in
   `undated_scored_count`, `overall_avg` across all scored items, empty case.
 - Frontend: `SentimentGraph` renders points and the <2-point empty state;
   `ContentItemRow` pill for positive / negative / unknown.

@@ -475,6 +475,27 @@ def test_subtask_persists_sentiment():
     assert item.sentiment_score == 0.5
     assert item.sentiment_label == "positive"
     assert Category.objects.get(run=run, key="news").status == "green"
+
+
+def test_subtask_sentiment_unknown_still_green():
+    # A sentiment failure surfaces as None/None on the item (score_sentiments is
+    # non-fatal); the category must still finish green (§5.4/§8, design §8).
+    run = Run.objects.create(input_text="Acme", input_kind="name",
+                             selected_categories=["news"],
+                             started_at=timezone.now())
+    Category.objects.create(run=run, key="news", display_order=0)
+
+    def fake(company, key, months, exclusion, run_id=None):
+        return {"items": [{"title": "t", "url": "https://n.com/a",
+                "source": "n.com", "published_at": None, "snippet": "s",
+                "sentiment_score": None, "sentiment_label": None}],
+                "summary": "s"}
+
+    with patch.object(tasks, "research_category", side_effect=fake):
+        tasks.run_category.run(run.id, run.generation, "news")
+
+    assert Category.objects.get(run=run, key="news").status == "green"
+    assert ContentItem.objects.get(category__run=run).sentiment_score is None
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -690,11 +711,10 @@ Add `"sentiment_timeline"` and `"sentiment_summary"` to
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `pytest research/tests/test_sentiment_api.py research/tests/test_api.py -q`
-Expected: PASS (existing API tests still pass; `test_detail_query_count_is_
-bounded` still holds because the getters iterate the already-prefetched
-relations — verify its query-count assertion is still satisfied and, if the
-prefetch adds one query, bump its `django_assert_max_num_queries` bound
-accordingly in the same commit).
+Expected: PASS. `test_detail_query_count_is_bounded` still holds unchanged: the
+new getters iterate ONLY the already-prefetched `categories__items` relations
+and read columns already in the row SELECT, so they add zero queries and the
+`django_assert_max_num_queries(6)` bound stands.
 
 - [ ] **Step 5: Commit**
 
@@ -1019,8 +1039,11 @@ test("hides the sentiment graph when nothing is scored", async () => {
     sentiment_timeline: [{ month: "2026-01", avg_score: null, item_count: 0 }],
   });
   renderAt(12);
-  await waitFor(() => expect(screen.getByText("News articles"))
-    .toBeInTheDocument());
+  // Wait on an unambiguous element ("News articles" appears in BOTH the index
+  // nav and the section head, so getByText would match multiple).
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: /refresh/i }))
+      .toBeInTheDocument());
   expect(screen.queryByText(/overall sentiment/i)).not.toBeInTheDocument();
 });
 ```
