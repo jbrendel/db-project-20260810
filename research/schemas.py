@@ -74,30 +74,33 @@ def parse_category_summary(content):
     return _bounded_str(_load(content)["summary"], "SUMMARY_MAX_CHARS", "1200")
 
 
-def _require_url_list(value, label):
-    if not isinstance(value, list) or not all(
-        isinstance(x, dict) and isinstance(x.get("url"), str) for x in value
-    ):
-        raise MalformedLLMOutput(f"{label} must be a list of {{url: str}}")
-    return value
-
-
 def parse_curator(content):
+    """Parse the CURATOR response TOLERANTLY.
+
+    The load-bearing output is `accepted` (the URLs to keep); `done`/`tool_call`
+    only steer the bounded loop. Real models sometimes omit `done` or shape
+    `accepted` loosely, so we SALVAGE rather than fail the whole category over a
+    control field: keep the valid `{"url": str}` entries from `accepted`, and
+    infer `done` (stop unless a follow-up search was actually requested). Only a
+    non-JSON body (via `_load`) fails.
+    """
     data = _load(content)
-    # Only `accepted` and `done` are load-bearing; `rejected`/`duplicates` are
-    # accepted-but-unused, so they are optional. Requiring the model to echo
-    # long rejected/duplicate lists risks truncating the response past
-    # max_tokens (an "Unterminated string" JSON error).
-    for key in ("accepted", "done"):
-        if key not in data:
-            raise MalformedLLMOutput(f"curator missing key: {key}")
-    if not isinstance(data["done"], bool):
-        raise MalformedLLMOutput("done must be bool")
-    _require_url_list(data["accepted"], "accepted")  # accepted is [{url}] only
-    data.setdefault("tool_call", None)
-    data.setdefault("rejected", [])
-    data.setdefault("duplicates", [])
-    return data
+    if not isinstance(data, dict):
+        return {"accepted": [], "rejected": [], "duplicates": [],
+                "tool_call": None, "done": True}
+    raw_accepted = data.get("accepted")
+    accepted = [x for x in raw_accepted
+                if isinstance(x, dict) and isinstance(x.get("url"), str)] \
+        if isinstance(raw_accepted, list) else []
+    tool_call = data.get("tool_call")
+    tool_call = tool_call if isinstance(tool_call, dict) else None
+    done = data.get("done")
+    if not isinstance(done, bool):
+        # Missing/invalid `done`: stop unless a real follow-up search is asked.
+        done = not (tool_call and isinstance(tool_call.get("query"), str))
+    return {"accepted": accepted, "rejected": data.get("rejected", []),
+            "duplicates": data.get("duplicates", []),
+            "tool_call": tool_call, "done": done}
 
 
 def _normalize_confidence(value):

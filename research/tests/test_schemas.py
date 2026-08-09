@@ -71,9 +71,18 @@ def test_parse_curator_ok():
     assert data["accepted"][0]["url"] == "u"
 
 
-def test_parse_curator_missing_done_raises():
-    with pytest.raises(MalformedLLMOutput):
-        parse_curator('{"accepted": [], "rejected": [], "duplicates": []}')
+def test_parse_curator_missing_done_is_salvaged():
+    # Real failure: model omitted `done`. Salvage accepted, infer done=True
+    # (no follow-up search requested) instead of failing the whole category.
+    data = parse_curator('{"accepted": [{"url": "u"}], "rejected": [],'
+                         '"duplicates": []}')
+    assert data["accepted"][0]["url"] == "u"
+    assert data["done"] is True
+
+
+def test_parse_curator_missing_done_with_tool_call_continues():
+    data = parse_curator('{"accepted": [], "tool_call": {"query": "more"}}')
+    assert data["done"] is False  # a real follow-up search keeps the loop going
 
 
 def test_parse_curator_tolerates_missing_rejected_duplicates():
@@ -83,16 +92,21 @@ def test_parse_curator_tolerates_missing_rejected_duplicates():
     assert data["rejected"] == [] and data["duplicates"] == []
 
 
-def test_parse_curator_accepted_without_url_raises():
-    with pytest.raises(MalformedLLMOutput):
-        parse_curator('{"accepted": [{"title": "x"}], "rejected": [],'
-                      '"duplicates": [], "done": true}')
+def test_parse_curator_drops_accepted_entries_without_url():
+    # An entry lacking a string url is dropped, not fatal.
+    data = parse_curator('{"accepted": [{"title": "x"}, {"url": "keep"}],'
+                         '"done": true}')
+    assert [a["url"] for a in data["accepted"]] == ["keep"]
 
 
-def test_parse_curator_done_must_be_bool():
+def test_parse_curator_non_bool_done_inferred():
+    data = parse_curator('{"accepted": [], "done": "yes"}')
+    assert data["done"] is True  # invalid done, no tool_call -> stop
+
+
+def test_parse_curator_non_json_still_fails():
     with pytest.raises(MalformedLLMOutput):
-        parse_curator('{"accepted": [], "rejected": [], "duplicates": [],'
-                      '"done": "yes"}')
+        parse_curator("not json")
 
 
 def test_parse_curator_defaults_tool_call():
