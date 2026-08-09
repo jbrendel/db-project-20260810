@@ -51,3 +51,15 @@ are recorded here so they are not lost, and so the initial build stays focused.
 - Bulk actions on the home list (multi-select delete).
 - Export a run's results (CSV / JSON / PDF).
 - Filtering/sorting of items within a category in the run-view.
+
+## Sentiment
+- Per-category sentiment trend lines / a category toggle on the graph (the
+  initial build ships a single run-level line only).
+- A stored per-item sentiment rationale / explanation (only score + label are
+  stored initially).
+- Concurrent per-item scoring (the initial build scores sequentially inside the
+  category subtask, bounded by SENTIMENT_MAX_ITEMS; parallelism would let the
+  cap rise without approaching the subtask soft time limit).
+- Incremental / cached sentiment across refreshes (a refresh re-scores from
+  scratch, as it re-runs everything).
+- Richer chart interactions (brushing, per-point drill-down, exportable series).

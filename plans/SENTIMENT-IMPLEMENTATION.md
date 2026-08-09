@@ -70,7 +70,7 @@ Vite + Vitest). Adds one frontend dependency: `recharts`.
 | 5    | Serializer timeline + summary + item fields    | DONE   |
 | 6    | Recharts + SentimentGraph component            | DONE   |
 | 7    | Item pill + graph mounted in run-view          | DONE   |
-| 8    | Config/docs + full gate                        | TODO   |
+| 8    | Config/docs + full gate                        | DONE   |
 
 ---
 

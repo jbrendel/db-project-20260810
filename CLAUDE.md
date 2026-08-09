@@ -48,7 +48,8 @@ exist on disk yet.
 All LLM calls go through one `call_llm(name, ...)` function. `name` selects env
 vars `<NAME>_LLM_URL|API_KEY|MODEL|TOKENS|TEMP`, each falling back to
 `DEFAULT_LLM_*`. The five `DEFAULT_LLM_*` are required. Call-points: IDENTITY,
-QUERY_PLANNER, CURATOR, CATEGORY_SUMMARY, REPORT. `call_llm` is single-shot; the
+QUERY_PLANNER, CURATOR, CATEGORY_SUMMARY, REPORT, SENTIMENT. `call_llm` is
+single-shot; the
 agentic loop lives in the CURATOR subtask, not inside `call_llm`. Every call is
 logged (model, timings, tokens, full prompt+response) to a separate LLM log
 file.
@@ -76,8 +77,11 @@ These look wrong without context. They are deliberate.
   entirely if any header task raises, so each category subtask, the fan-in
   callback, and the non-fatal IDENTITY step wrap their body in
   `try/except Exception`, record the error, and return normally. These are the
-  ONLY three sanctioned broad-except sites (plan Section 5.4). Code still fails
-  loud UP TO those boundaries.
+  sanctioned broad-except sites (plan Section 5.4). A fourth sanctioned
+  non-fatal broad-except is `pipeline.score_sentiments` (per-item sentiment,
+  inside the category subtask): it records `null` sentiment and re-raises
+  `SoftTimeLimitExceeded` so it never masks a timeout, and never marks a
+  category red. Code still fails loud UP TO those boundaries.
 - **Generation fencing (plan Section 5.7) is how refresh/reaper stay correct,
   NOT task revocation.** `Run.generation` is bumped on refresh and by the
   reaper. Every DB write happens in a transaction whose first statement is a

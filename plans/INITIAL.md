@@ -346,7 +346,7 @@ the chosen driver during milestone 7 (Section 22).
 
 ## 6. LLM call-points and `call_llm()`
 
-There are **five** named call-points, each independently configurable:
+There are **six** named call-points, each independently configurable:
 
 | Name             | Purpose                                             |
 |------------------|-----------------------------------------------------|
@@ -355,8 +355,12 @@ There are **five** named call-points, each independently configurable:
 | CURATOR          | Filter/exclude/dedupe; may request more searches.   |
 | CATEGORY_SUMMARY | One summary paragraph per category.                 |
 | REPORT           | One run-level executive overview.                   |
+| SENTIMENT        | Per-item sentiment score for the trend graph.       |
 
 All LLM interaction goes through a single function, `call_llm(name, ...)`.
+`SENTIMENT` is best-effort/non-fatal like IDENTITY (a failed/malformed score
+yields `null` sentiment, never a red category); its output contract and the
+run-level trend graph are specified in `plans/SENTIMENT-DESIGN.md`.
 
 - `name` selects the env-var set. For each call-point these may be defined:
   `<NAME>_LLM_URL`, `<NAME>_LLM_API_KEY`, `<NAME>_LLM_MODEL`,
@@ -754,7 +758,8 @@ last-known data as stale (never silently frozen), and retries with backoff.
   - `REDIS_URL` — required at runtime; there is NO `localhost:6379` fallback
     (no standard port is assumed). `start_all.sh` sets it to the chosen port.
 - Optional per-call-point overrides (`IDENTITY`, `QUERY_PLANNER`, `CURATOR`,
-  `CATEGORY_SUMMARY`, `REPORT`): `<NAME>_LLM_URL|API_KEY|MODEL|TOKENS|TEMP`.
+  `CATEGORY_SUMMARY`, `REPORT`, `SENTIMENT`):
+  `<NAME>_LLM_URL|API_KEY|MODEL|TOKENS|TEMP`.
 - Optional tunables (with defaults): `CURATOR_MAX_ITERATIONS`,
   `CURATOR_MAX_SEARCHES`, `RUN_MAX_DURATION_SECONDS`, `REAPER_INTERVAL_SECONDS`,
   run-list page size; and the volume/prompt caps (Section 6.2):
@@ -1023,3 +1028,4 @@ rewritten later.
 |15 | start_all.sh (ports, scoped Redis, readiness, traps, reset)  | DONE   |
 |16 | run_tests.sh + backend/frontend test suites                  | DONE   |
 |17 | End-to-end manual verification against a real company        | PARTIAL|
+|18 | Sentiment scoring + run-level trend graph (SENTIMENT-*.md)   | DONE   |
