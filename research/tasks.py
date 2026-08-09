@@ -228,7 +228,9 @@ def _report_prompt(run, kept_items):
         "source). In the overview, include a short summary of the POSITIVE "
         "coverage — which sources/outlets it comes from and what themes it is "
         "about — and, separately, the NEGATIVE coverage (its sources and "
-        'themes). Return JSON {"executive_overview": "..."}.\n'
+        "themes). Return JSON where executive_overview is a SINGLE plain-text "
+        "string (NOT a nested object); use short lead-ins like \"Positive:\" "
+        'and "Negative:" within that string. {"executive_overview": "..."}.\n'
         f"{body}")
 
 

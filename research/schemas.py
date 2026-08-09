@@ -34,9 +34,40 @@ def _bounded_str(value, env_var, default):
     return value[: int(os.environ.get(env_var, default))]
 
 
+def _flatten_report_text(value):
+    """Coerce a report overview (str | dict | list) into readable prose.
+
+    The overview is display text; when a model returns a structured object
+    (e.g. separate positive/negative sections) we flatten it into labelled
+    paragraphs rather than failing the whole report (mirrors the tolerant
+    IDENTITY handling, §6.1). None -> "" so an empty overview still fails loud.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        parts = []
+        for key, val in value.items():
+            text = _flatten_report_text(val).strip()
+            if text:
+                label = str(key).replace("_", " ").strip().capitalize()
+                parts.append(f"{label}: {text}")
+        return "\n\n".join(parts)
+    if isinstance(value, list):
+        return "\n\n".join(
+            t for t in (_flatten_report_text(v) for v in value) if t.strip())
+    return str(value)
+
+
 def parse_report(content):
-    return _bounded_str(_load(content)["executive_overview"],
-                        "REPORT_MAX_CHARS", "4000")
+    data = _load(content)
+    if not isinstance(data, dict) or "executive_overview" not in data:
+        raise MalformedLLMOutput("report missing executive_overview")
+    text = _flatten_report_text(data["executive_overview"]).strip()
+    if not text:
+        raise MalformedLLMOutput("empty executive_overview")
+    return text[: int(os.environ.get("REPORT_MAX_CHARS", "4000"))]
 
 
 def parse_category_summary(content):

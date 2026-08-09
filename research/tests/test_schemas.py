@@ -33,9 +33,26 @@ def test_parse_report_null_raises():
         parse_report('{"executive_overview": null}')
 
 
-def test_parse_report_array_raises():
+def test_parse_report_missing_key_raises():
     with pytest.raises(MalformedLLMOutput):
-        parse_report('{"executive_overview": ["a"]}')
+        parse_report('{"something_else": "x"}')
+
+
+def test_parse_report_coerces_structured_overview():
+    # A model may return the overview as a nested object (e.g. positive/negative
+    # sections). Flatten it to prose instead of failing the whole report.
+    raw = ('{"executive_overview": {"summary": "Overall solid.",'
+           '"positive": "Praise from TechCrunch.",'
+           '"negative": "Concerns in Reuters."}}')
+    out = parse_report(raw)
+    assert "Overall solid." in out
+    assert "Positive: Praise from TechCrunch." in out
+    assert "Negative: Concerns in Reuters." in out
+
+
+def test_parse_report_coerces_list_overview():
+    out = parse_report('{"executive_overview": ["Para one.", "Para two."]}')
+    assert "Para one." in out and "Para two." in out
 
 
 def test_parse_report_bounded(monkeypatch):
