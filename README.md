@@ -18,15 +18,15 @@ Deliberately excluded: the company's own channels (its site, blog, LinkedIn,
 etc.), link aggregators, product review/comparison pages, and ecommerce pages.
 
 For each run you get: a run-level executive overview, a short summary per
-category, and the underlying items (title, source, date, snippet, link). A run
-shows a status — Complete, Partial, Failed, or Running.
+category, the underlying items (title, source, date, snippet, link), and a
+per-item sentiment score charted as a trend over time. A run shows a status —
+Complete, Partial, Failed, or Running. Multiple runs can proceed in parallel.
 
 ## Project status
 
-The design is complete and reviewed (`plans/INITIAL.md`). **The application is
-not implemented yet.** The setup and run instructions below describe the
-intended workflow defined by that design; the scripts and code they mention do
-not all exist on disk yet. Track build progress in Section 22 of the plan.
+The application is implemented and runnable. Start it with `./start_all.sh`
+(see "Running" below). The original design remains the source of truth in
+`plans/INITIAL.md`; `NOTES.md` explains how the system was actually built.
 
 ## Tech stack
 
@@ -79,7 +79,19 @@ This one script:
 - tails the logs of all services into one view.
 
 Press **Ctrl-C** to shut everything down cleanly (including the Redis
-container). Open the Vite URL printed in the log to use the app.
+container).
+
+**Where to point your browser:** the script prefers fixed, non-standard ports,
+so the frontend is usually at **http://localhost:5390**. To be sure, look for
+these lines near the top of the output:
+
+```
+Ports -> Redis:6390  Django:8390  Vite:5390
+Open the app at: http://localhost:5390
+```
+
+Use the `Open the app at:` URL — if port 5390 was already taken, the script
+picks the next free port and prints the actual one there.
 
 To wipe the database back to empty:
 
@@ -95,7 +107,9 @@ To wipe the database back to empty:
 3. Submit. The run starts in the background and you are taken to its run-view.
 4. Watch categories fill in live (each shows a spinner until it completes). Past
    runs remain on the home page; click any to reopen it.
-5. On a run-view you can **Refresh** to wipe that run and start it over.
+5. Once items arrive, the run-view also shows a sentiment trend graph plotting
+   each item's score over time.
+6. On a run-view you can **Refresh** to wipe that run and start it over.
 
 Multiple runs can be in progress at once.
 
@@ -111,8 +125,8 @@ Required:
   `DEFAULT_LLM_TOKENS`, `DEFAULT_LLM_TEMP` — the fallback LLM configuration.
 
 Per-call-point overrides (optional): the app makes distinct kinds of LLM calls
-(IDENTITY, QUERY_PLANNER, CURATOR, CATEGORY_SUMMARY, REPORT). Each can use a
-different model by setting `<NAME>_LLM_URL|API_KEY|MODEL|TOKENS|TEMP`. Any
+(IDENTITY, QUERY_PLANNER, CURATOR, CATEGORY_SUMMARY, REPORT, SENTIMENT). Each can
+use a different model by setting `<NAME>_LLM_URL|API_KEY|MODEL|TOKENS|TEMP`. Any
 variable not set for a call-point falls back to its `DEFAULT_LLM_*` value. This
 lets you, for example, use a cheaper model for planning and a stronger one for
 the executive overview.
@@ -136,6 +150,16 @@ listed in `docs/FUTURE-IMPROVEMENTS.md`.
 
 ## Documentation
 
+- `NOTES.md` — how the system was built: the approach, the stack rationale,
+  what went beyond the original brief, and known unfinished business.
+- `docs/ARCHITECTURE.md` — the architecture with diagrams (process view,
+  per-category pipeline, run lifecycle, and key invariants), rendered from
+  Mermaid.
+- `docs/architecture.html` / `docs/architecture.pdf` — the same architecture as
+  a self-contained page and printable PDF.
+- `docs/pipeline.html` / `docs/pipeline.pdf` — the per-category research flow.
 - `plans/INITIAL.md` — the full design and the source of truth.
 - `plans/PRD-initial.md` — the original product requirements.
+- `plans/SENTIMENT-DESIGN.md` — design for the sentiment-analysis feature.
 - `CLAUDE.md` — architecture decisions, constraints, and key invariants.
+- `docs/FUTURE-IMPROVEMENTS.md` — deliberately deferred work.
